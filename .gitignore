@@ -38,3 +38,7 @@ coverage/
 
 # Misc
 *.log
+
+# Firebase service accounts and sensitive files
+serviceAccountKey.json
+**/serviceAccountKey.json
