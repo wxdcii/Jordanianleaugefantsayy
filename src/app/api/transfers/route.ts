@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { doc, getDoc, updateDoc, collection, addDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, collection, addDoc, getDocs } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import {
   UserTransferState,
@@ -43,10 +43,42 @@ export async function POST(request: NextRequest) {
 
     const userData = userDoc.data()
     
+    // Check if this is a completely new user by looking at both flag and actual squad history
+    const hasEverSavedSquadFlag = userData.hasEverSavedSquad
+    
+    // Additional check: Does user actually have any squads in their subcollection?
+    let hasAnySquads = false
+    try {
+      const squadsRef = collection(db, 'users', userId, 'squads')
+      const squadsSnapshot = await getDocs(squadsRef)
+      hasAnySquads = !squadsSnapshot.empty
+    } catch (error) {
+      console.warn('Could not check user squad history:', error)
+    }
+    
+    // User is truly new only if they have NEVER saved a squad AND have no squads in their collection
+    const isNewUser = !hasEverSavedSquadFlag && !hasAnySquads
+    
+    // New users who have never saved a squad get unlimited transfers (9999)
+    const shouldHaveUnlimitedTransfers = isNewUser
+    
     // Get current transfer state or initialize default
-    let currentTransferState: UserTransferState = userData.transferState || getDefaultTransferState()
+    let currentTransferState: UserTransferState = userData.transferState || getDefaultTransferState(gameweekId, shouldHaveUnlimitedTransfers)
+    
+    // Force unlimited transfers for new users
+    if (isNewUser && currentTransferState.savedFreeTransfers < 9999) {
+      currentTransferState.savedFreeTransfers = 9999
+    }
     
     console.log('🎯 Current transfer state:', currentTransferState)
+    console.log('🔍 Transfer conditions:', {
+      hasEverSavedSquadFlag: hasEverSavedSquadFlag,
+      hasAnySquads: hasAnySquads,
+      isNewUser: isNewUser,
+      shouldHaveUnlimitedTransfers: shouldHaveUnlimitedTransfers,
+      gameweekId: gameweekId,
+      savedFreeTransfers: currentTransferState.savedFreeTransfers
+    })
 
     // Process gameweek start if needed
     const processedState = processGameweekStart(currentTransferState, gameweekId)
@@ -125,11 +157,41 @@ export async function GET(request: NextRequest) {
     }
 
     const userData = userDoc.data()
-    let transferState: UserTransferState = userData.transferState || getDefaultTransferState()
+    
+    // Check if this is a completely new user by looking at both flag and actual squad history
+    const hasEverSavedSquadFlag = userData.hasEverSavedSquad
+    
+    // Additional check: Does user actually have any squads in their subcollection?
+    let hasAnySquads = false
+    try {
+      const squadsRef = collection(db, 'users', userId, 'squads')
+      const squadsSnapshot = await getDocs(squadsRef)
+      hasAnySquads = !squadsSnapshot.empty
+    } catch (error) {
+      console.warn('Could not check user squad history:', error)
+    }
+    
+    // User is truly new only if they have NEVER saved a squad AND have no squads in their collection
+    const isNewUser = !hasEverSavedSquadFlag && !hasAnySquads
+    
+    // New users who have never saved a squad get unlimited transfers (9999)
+    const shouldHaveUnlimitedTransfers = isNewUser
+    
+    let transferState: UserTransferState = userData.transferState || getDefaultTransferState(gameweekId, shouldHaveUnlimitedTransfers)
+
+    // Force unlimited transfers for new users
+    if (isNewUser && transferState.savedFreeTransfers < 9999) {
+      transferState.savedFreeTransfers = 9999
+    }
 
     console.log(`🔍 Transfer API GET - GW${gameweekId}:`, {
       currentTransferState: transferState,
-      gameweekRequested: gameweekId
+      gameweekRequested: gameweekId,
+      hasEverSavedSquadFlag: hasEverSavedSquadFlag,
+      hasAnySquads: hasAnySquads,
+      isNewUser: isNewUser,
+      shouldHaveUnlimitedTransfers: shouldHaveUnlimitedTransfers,
+      savedFreeTransfers: transferState.savedFreeTransfers
     });
 
     // Step 1: Auto-reset transfer penalties if the gameweek where transfers were made is now closed
@@ -146,7 +208,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 2: Process gameweek start if needed (normal gameweek progression)
-    const processedState = processGameweekStart(transferState, gameweekId)
+    // Don't process gameweek start for new users - they should keep unlimited transfers
+    const processedState = shouldHaveUnlimitedTransfers ? 
+      transferState : // Keep current state for new users
+      processGameweekStart(transferState, gameweekId)
 
     if (processedState.lastGameweekProcessed !== transferState.lastGameweekProcessed) {
       console.log(`💾 Saving reset transfer state for GW${gameweekId}`);
@@ -199,5 +264,5 @@ function getTransferMessage(summary: TransferSummary, gameweekId: number): strin
     return `Transfer completed! This will cost ${summary.pointsDeducted ?? 0} points.`
   }
   
-  return `Transfer completed! Free transfer used.`
+  return `Transfer completed! Free transfer used (New users have unlimited transfers).`
 }

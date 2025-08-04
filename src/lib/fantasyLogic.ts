@@ -703,9 +703,9 @@ export interface GameweekTransferSummary {
 }
 
 // Initialize default transfer state for new users
-export function getDefaultTransferState(currentGameweek: number = 1): UserTransferState {
+export function getDefaultTransferState(currentGameweek: number = 1, isFirstTimeUser: boolean = true): UserTransferState {
   return {
-    savedFreeTransfers: 999, // Unlimited for first squad creation
+    savedFreeTransfers: isFirstTimeUser ? 9999 : (currentGameweek === 1 ? 9999 : 1), // 9999 for first-time users or GW1
     transfersMadeThisWeek: 0,
     pointsDeductedThisWeek: 0,
     wildcardActive: false,
@@ -750,8 +750,8 @@ export function calculateFreeTransfers(
   });
 
   if (toGameweek === 1) {
-    console.log(`✅ GW1: Unlimited transfers (999)`);
-    return 999; // GW1: Unlimited transfers
+    console.log(`✅ GW1: Unlimited transfers (9999)`);
+    return 9999; // GW1: Unlimited transfers
   }
 
   if (toGameweek === 2) {
@@ -833,18 +833,27 @@ export function processGameweekStart(
     return currentState
   }
 
+  // Special case: If user had unlimited transfers (9999) and is moving to a new gameweek,
+  // they should transition to normal transfer rules (this handles first-time users after their first gameweek)
+  const wasFirstTimeUser = currentState.savedFreeTransfers >= 9999
+  
   // Calculate free transfers for the new gameweek using helper function
-  const newFreeTransfers = calculateFreeTransfers(
-    currentState.lastGameweekProcessed,
-    gameweek,
-    currentState.savedFreeTransfers
-  );
+  const newFreeTransfers = wasFirstTimeUser && gameweek > currentState.lastGameweekProcessed + 1 ?
+    // First-time user transitioning to normal rules gets 1 free transfer
+    1 :
+    // Normal free transfer calculation
+    calculateFreeTransfers(
+      currentState.lastGameweekProcessed,
+      gameweek,
+      currentState.savedFreeTransfers
+    );
 
   console.log(`📊 Regular gameweek progression free transfers:`, {
     previousGameweek: currentState.lastGameweekProcessed,
     newGameweek: gameweek,
     previousFreeTransfers: currentState.savedFreeTransfers,
-    newFreeTransfers: newFreeTransfers
+    newFreeTransfers: newFreeTransfers,
+    wasFirstTimeUser: wasFirstTimeUser
   });
 
   const newState = {
@@ -859,7 +868,8 @@ export function processGameweekStart(
   console.log(`✅ Transfer state reset for GW${gameweek}:`, {
     oldState: currentState,
     newState: newState,
-    freeTransfers: newFreeTransfers
+    freeTransfers: newFreeTransfers,
+    transitionedFromFirstTime: wasFirstTimeUser
   });
 
   return newState;
@@ -924,8 +934,8 @@ export function calculateTransferCost(
     }
   }
 
-  // GW1: Unlimited free transfers
-  if (gameweek === 1) {
+  // GW1 or first-time users (9999 transfers): Unlimited free transfers  
+  if (gameweek === 1 || savedFreeTransfers >= 9999) {
     return {
       transfersMade: transfersThisWeek,
       freeTransfersUsed: transfersThisWeek,

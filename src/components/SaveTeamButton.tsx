@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
-import { DeadlineService } from '@/lib/newDeadlineService'
+import { GameweekDeadlineService } from '@/lib/gameweekDeadlineService'
 
 interface SaveTeamButtonProps {
   onSave: () => Promise<void>
@@ -37,9 +37,9 @@ export default function SaveTeamButton({
     const checkDeadline = async () => {
       try {
         // Get the open gameweek info (where isOpen === true)
-        const deadlineInfo = await DeadlineService.getOpenGameweekDeadline()
-        if (deadlineInfo && deadlineInfo.deadline) {
-          const deadlineDate = new Date(deadlineInfo.deadline)
+        const openGameweek = await GameweekDeadlineService.getCurrentGameweek()
+        if (openGameweek && openGameweek.deadline) {
+          const deadlineDate = new Date(openGameweek.deadline)
           setIsDeadlinePassed(Date.now() > deadlineDate.getTime())
           if (Date.now() > deadlineDate.getTime()) {
             setTimeRemaining(language === 'ar' ? 'انتهى الوقت' : 'Deadline Passed')

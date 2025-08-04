@@ -165,7 +165,7 @@ export class DeadlineService {
 
   // Fetch the open gameweek deadline from Firestore
   static async getOpenGameweekDeadline() {
-    const q = query(collection(db, 'gameweeksdeadline'), where('isOpen', '==', true));
+      const q = query(collection(db, 'gameweeksDeadline'), where('isOpen', '==', true));
     const snapshot = await getDocs(q);
     if (snapshot.empty) return null;
     const docData = snapshot.docs[0].data();

@@ -18,6 +18,8 @@ import SaveTeamButton from '@/components/SaveTeamButton';
 import DeadlineCountdown from '@/components/DeadlineCountdown';
 import DeadlineDisplay, { DeadlineStatus, LiveCountdown } from '@/components/DeadlineDisplay';
 import TransferInfo from '@/components/TransferInfo';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 
 import {
@@ -326,11 +328,21 @@ export default function SquadSelectionPage() {
   const [chipsUsed, setChipsUsed] = useState<ChipsUsed>(getDefaultChipsUsed());
 
   // Transfer state
-  const [transferState, setTransferState] = useState<UserTransferState>(getDefaultTransferState());
+  const [transferState, setTransferState] = useState<UserTransferState>(getDefaultTransferState(1, true));
 
   // Calculate transfer cost using new system
   const transferCost = useMemo(() => {
-    if (currentGameweek?.id === 1) return 0; // GW1 unlimited free transfers
+    // No cost if in GW1, user has unlimited transfers (new user), or user is still in their first gameweek
+    const hasUnlimitedTransfers = currentGameweek?.id === 1 || transferState.savedFreeTransfers >= 9999;
+    
+    if (hasUnlimitedTransfers) {
+      console.log('🆓 User has unlimited transfers:', {
+        gameweek: currentGameweek?.id,
+        savedFreeTransfers: transferState.savedFreeTransfers,
+        reason: currentGameweek?.id === 1 ? 'GW1' : 'New user without previous squad'
+      });
+      return 0;
+    }
 
     const summary = calculateTransferCost(
       transferState.transfersMadeThisWeek,
@@ -523,9 +535,9 @@ export default function SquadSelectionPage() {
             setTransferState(transferData.transferState);
             console.log(`✅ Loaded transfer state for GW${gameweekForTransfers}:`, transferData.transferState);
           } else {
-            // Fallback to default state
-            console.log(`⚠️ No transfer state found for GW${gameweekForTransfers}, using default`);
-            setTransferState(getDefaultTransferState());
+            // Fallback to default state for first-time user
+            console.log(`⚠️ No transfer state found for GW${gameweekForTransfers}, using default for first-time user`);
+            setTransferState(getDefaultTransferState(gameweekForTransfers, true));
           }
 
           // Load saved squad will be called separately
@@ -1522,6 +1534,19 @@ export default function SquadSelectionPage() {
       }
 
       console.log('✅ Squad saved to Firebase subcollection:', firebaseResult)
+
+      // Mark user as having saved their first squad (for transfer system)
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          hasEverSavedSquad: true,
+          lastSquadSaveDate: new Date()
+        })
+        console.log('✅ Marked user as having saved first squad')
+        console.log('🔄 User will transition to normal transfer rules in next gameweek')
+        
+      } catch (error) {
+        console.warn('⚠️ Failed to update user first squad flag (non-critical):', error)
+      }
 
       // Calculate and save points for this gameweek
       try {
