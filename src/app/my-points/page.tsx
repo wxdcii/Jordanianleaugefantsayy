@@ -6,12 +6,14 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Header } from '@/components/Header'
 import UserPointsDisplay from '@/components/UserPointsDisplay'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import Top50Leaderboard from '@/components/Top50Leaderboard'
 import { isAdminUser } from '@/lib/adminAuth'
 
 export default function MyPointsPage() {
   const { user } = useAuth()
   const { language } = useLanguage()
   const [refreshing, setRefreshing] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState('')
 
   const isArabic = language === 'ar'
   const isAdmin = isAdminUser(user)
@@ -37,8 +39,11 @@ export default function MyPointsPage() {
     }
 
     setRefreshing(true)
+    setUpdateStatus(isArabic ? 'جاري الاتصال بالخادم...' : 'Connecting to server...')
 
     try {
+      setUpdateStatus(isArabic ? 'جاري إرسال طلب التحديث...' : 'Sending update request...')
+      
       const response = await fetch('/api/refresh-all-points', {
         method: 'POST',
         headers: {
@@ -47,12 +52,23 @@ export default function MyPointsPage() {
         body: JSON.stringify({})
       })
 
+      setUpdateStatus(isArabic ? 'جاري معالجة الاستجابة...' : 'Processing response...')
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
+      console.log('Update result:', result) // Debug log
+
+      setUpdateStatus(isArabic ? 'تم استلام النتيجة...' : 'Result received...')
 
       if (result.success) {
+        setUpdateStatus(isArabic ? 'تم التحديث بنجاح!' : 'Update successful!')
+        
         const successMessage = isArabic 
-          ? `✅ تم تحديث نقاط جميع اللاعبين بنجاح!\n\n📊 تم تحديث ${result.data.totalUsersUpdated} لاعب\n🏆 عبر ${result.data.gameweeksUpdated} جولة\n\n⚡ العملية مكتملة بواسطة الإدارة`
-          : `✅ All players points updated successfully!\n\n📊 Updated ${result.data.totalUsersUpdated} players\n🏆 Across ${result.data.gameweeksUpdated} gameweeks\n\n⚡ Admin operation completed`
+          ? `✅ تم تحديث نقاط جميع اللاعبين بنجاح!\n\n📊 تم تحديث ${result.data?.totalUsersUpdated || 0} لاعب\n🏆 عبر ${result.data?.gameweeksUpdated || 0} جولة\n\n⚡ العملية مكتملة بواسطة الإدارة`
+          : `✅ All players points updated successfully!\n\n📊 Updated ${result.data?.totalUsersUpdated || 0} players\n🏆 Across ${result.data?.gameweeksUpdated || 0} gameweeks\n\n⚡ Admin operation completed`
         
         alert(successMessage)
 
@@ -61,13 +77,93 @@ export default function MyPointsPage() {
           window.location.reload()
         }, 500)
       } else {
-        alert(`❌ خطأ في تحديث الترتيب: ${result.message}`)
+        const errorMessage = isArabic
+          ? `❌ خطأ في تحديث النقاط: ${result.message || 'خطأ غير معروف'}`
+          : `❌ Error updating points: ${result.message || 'Unknown error'}`
+        alert(errorMessage)
+        console.error('Update failed:', result)
       }
     } catch (error) {
-      console.error('Error refreshing ranks:', error)
-      alert('❌ حدث خطأ في تحديث الترتيب')
+      console.error('Error refreshing points:', error)
+      const errorMessage = isArabic
+        ? `❌ حدث خطأ في الاتصال بالخادم: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`
+        : `❌ Server connection error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      alert(errorMessage)
     } finally {
       setRefreshing(false)
+      setUpdateStatus('')
+    }
+  }
+
+  const handleResetTotalPoints = async () => {
+    if (!user || !isAdmin) {
+      alert(isArabic 
+        ? '❌ غير مصرح لك بهذا الإجراء - مخصص للإدارة فقط' 
+        : '❌ Access denied - Admin only action')
+      return
+    }
+
+    // Double confirmation for this dangerous action
+    const confirmMessage1 = isArabic 
+      ? '⚠️ تحذير: هذا الإجراء سيؤدي إلى إعادة تعيين جميع النقاط الإجمالية للاعبين إلى صفر!\n\nهل أنت متأكد تماماً؟'
+      : '⚠️ WARNING: This action will reset ALL users total points to ZERO!\n\nAre you absolutely sure?'
+    
+    if (!confirm(confirmMessage1)) {
+      return
+    }
+
+    const confirmMessage2 = isArabic 
+      ? 'تأكيد أخير: سيتم حذف جميع النقاط الإجمالية نهائياً. هل تريد المتابعة؟'
+      : 'Final confirmation: All total points will be permanently reset. Continue?'
+    
+    if (!confirm(confirmMessage2)) {
+      return
+    }
+
+    setRefreshing(true)
+    setUpdateStatus(isArabic ? 'جاري إعادة تعيين النقاط...' : 'Resetting points...')
+
+    try {
+      const response = await fetch('/api/reset-total-points', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('Reset result:', result)
+
+      if (result.success) {
+        const successMessage = isArabic 
+          ? `✅ تم إعادة تعيين النقاط بنجاح!\n\n📊 تم إعادة تعيين ${result.data?.successfulUpdates || 0} لاعب\n🔄 جميع النقاط الإجمالية أصبحت صفر`
+          : `✅ Points reset successfully!\n\n📊 Reset ${result.data?.successfulUpdates || 0} players\n🔄 All total points are now zero`
+        
+        alert(successMessage)
+        
+        setTimeout(() => {
+          window.location.reload()
+        }, 500)
+      } else {
+        const errorMessage = isArabic
+          ? `❌ خطأ في إعادة تعيين النقاط: ${result.message || 'خطأ غير معروف'}`
+          : `❌ Error resetting points: ${result.message || 'Unknown error'}`
+        alert(errorMessage)
+        console.error('Reset failed:', result)
+      }
+    } catch (error) {
+      console.error('Error resetting points:', error)
+      const errorMessage = isArabic
+        ? `❌ حدث خطأ في الاتصال بالخادم: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`
+        : `❌ Server connection error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      alert(errorMessage)
+    } finally {
+      setRefreshing(false)
+      setUpdateStatus('')
     }
   }
 
@@ -116,19 +212,41 @@ export default function MyPointsPage() {
                     </p>
                   </div>
                   
-                  <button
-                    onClick={handleRefreshRanks}
-                    disabled={refreshing}
-                    className="bg-red-600 text-white px-8 py-3 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-lg"
-                  >
-                    {refreshing
-                      ? isArabic
-                        ? '🔄 جاري التحديث...'
-                        : '🔄 Updating...'
-                      : isArabic
-                        ? '⚡ تحديث نقاط جميع اللاعبين'
-                        : '⚡ Update All Players Points'}
-                  </button>
+                  <div className="space-y-3">
+                    <button
+                      onClick={handleRefreshRanks}
+                      disabled={refreshing}
+                      className="bg-red-600 text-white px-8 py-3 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-lg"
+                    >
+                      {refreshing
+                        ? isArabic
+                          ? '🔄 جاري التحديث...'
+                          : '🔄 Updating...'
+                        : isArabic
+                          ? '⚡ تحديث نقاط جميع اللاعبين'
+                          : '⚡ Update All Players Points'}
+                    </button>
+
+                    <button
+                      onClick={handleResetTotalPoints}
+                      disabled={refreshing}
+                      className="bg-gray-800 text-white px-8 py-3 rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-lg ml-4"
+                    >
+                      {isArabic
+                        ? '🔄 إعادة تعيين جميع النقاط'
+                        : '🔄 Reset All Total Points'}
+                    </button>
+                  </div>
+                  
+                  {/* Status display */}
+                  {refreshing && updateStatus && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-700 font-medium">
+                        {updateStatus}
+                      </p>
+                    </div>
+                  )}
+                  
                   <p className="text-xs text-gray-500 mt-2">
                     {isArabic 
                       ? 'سيتم تحديث نقاط وترتيب جميع اللاعبين في النظام' 
@@ -136,6 +254,14 @@ export default function MyPointsPage() {
                   </p>
                 </div>
               )}
+
+              {/* Top 50 Leaderboard */}
+              <div className="max-w-4xl mx-auto">
+                <h3 className="text-2xl font-bold text-gray-800 mb-6 text-center">
+                  {isArabic ? '🏆 أفضل 50 لاعب في الدوري' : '🏆 Top 50 Players in the League'}
+                </h3>
+                <Top50Leaderboard />
+              </div>
 
               {/* Points Explanation */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 max-w-2xl mx-auto">

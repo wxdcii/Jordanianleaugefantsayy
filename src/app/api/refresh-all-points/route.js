@@ -67,30 +67,41 @@ export async function POST(request) {
       }
     }
 
-    // Update total points for all users: previous total + open gameweek points only
-    console.log('🧮 Updating total points for all users...')
+    // Update total points for all users: Add ONLY the open gameweek points to existing total
+    console.log('🧮 Adding open gameweek points to existing totals...')
     try {
       const { collection, getDocs, getDoc, doc, updateDoc } = await import('firebase/firestore')
       const { db } = await import('../../../lib/firebase')
       const usersSnapshot = await getDocs(collection(db, 'users'))
       let totalPointsUpdated = 0
-      const openGameweek = Math.max(...gameweeks)
+      const openGameweek = Math.max(...gameweeks) // Get the current open gameweek
+      
+      console.log(`📊 Processing open gameweek: GW${openGameweek}`)
+      
       for (const userDoc of usersSnapshot.docs) {
         try {
-          // Get previous total points from user profile
-          const prevTotalPoints = userDoc.data().totalPoints || 0
-
-          // Get open gameweek points for this user
-          const gwPointsDocRef = doc(db, 'users', userDoc.id, 'gameweekPoints', String(openGameweek))
+          const userId = userDoc.id
+          const userData = userDoc.data()
+          
+          // Get existing total points (from previous gameweeks)
+          const existingTotalPoints = userData.totalPoints || 0
+          
+          // Get current open gameweek points for this user
+          const gwPointsDocRef = doc(db, 'users', userId, 'GameweekPoints', `gw${openGameweek}`)
           const gwPointsDoc = await getDoc(gwPointsDocRef)
-          const openGWPoints = gwPointsDoc.exists() ? gwPointsDoc.data().points || 0 : 0
+          const currentGWPoints = gwPointsDoc.exists() ? (gwPointsDoc.data().points || 0) : 0
+          
+          // Add current gameweek points to existing total
+          const newTotalPoints = existingTotalPoints + currentGWPoints
+          
+          // Update user's total points
+          await updateDoc(doc(db, 'users', userId), { 
+            totalPoints: newTotalPoints,
+            lastPointsUpdate: new Date(),
+            [`gw${openGameweek}Processed`]: true // Mark this gameweek as processed
+          })
 
-          // Add open gameweek points to previous total
-          const newTotalPoints = prevTotalPoints + openGWPoints
-
-          // Save new total points to user profile
-          await updateDoc(doc(db, 'users', userDoc.id), { totalPoints: newTotalPoints })
-
+          console.log(`✅ User ${userId}: ${existingTotalPoints} + ${currentGWPoints} = ${newTotalPoints} total points`)
           totalPointsUpdated++
         } catch (userError) {
           console.warn(`Error updating total points for user ${userDoc.id}:`, userError)
@@ -99,24 +110,33 @@ export async function POST(request) {
       console.log(`✅ Updated total points for ${totalPointsUpdated} users`)
 
       // --- RANKING LOGIC ---
+      console.log('🏆 Calculating rankings...')
       // Fetch all users again and sort by totalPoints descending
       const rankedSnapshot = await getDocs(collection(db, 'users'))
       const rankedUsers = rankedSnapshot.docs
         .map(doc => ({
           userId: doc.id,
-          totalPoints: doc.data().totalPoints || 0
+          totalPoints: doc.data().totalPoints || 0,
+          displayName: doc.data().displayName || doc.data().email || doc.id
         }))
         .sort((a, b) => b.totalPoints - a.totalPoints)
 
-      // Optionally, update each user's rank in Firestore
+      console.log('🏆 Top 5 Users:', rankedUsers.slice(0, 5))
+
+      // Update each user's rank in Firestore
       for (let i = 0; i < rankedUsers.length; i++) {
         const user = rankedUsers[i]
         try {
-          await updateDoc(doc(db, 'users', user.userId), { rank: i + 1 })
+          await updateDoc(doc(db, 'users', user.userId), { 
+            rank: i + 1,
+            lastRankUpdate: new Date()
+          })
         } catch (rankError) {
           console.warn(`Error updating rank for user ${user.userId}:`, rankError)
         }
       }
+      
+      console.log(`✅ Updated rankings for ${rankedUsers.length} users`)
 
       return NextResponse.json({
         success: true,

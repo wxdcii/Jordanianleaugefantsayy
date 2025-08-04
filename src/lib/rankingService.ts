@@ -180,10 +180,10 @@ export class RankingService {
   }> {
     try {
       const usersRef = collection(db, 'users')
+      // Simplified query - only order by totalPoints to avoid composite index requirement
       const usersQuery = query(
         usersRef, 
         orderBy('totalPoints', 'desc'),
-        orderBy('rank', 'asc'),
         limit(limitCount)
       )
       
@@ -194,21 +194,30 @@ export class RankingService {
         const userData = userDoc.data()
         const userId = userDoc.id
         
-        // Get gameweek stats for additional info
-        const pointsResult = await GameweekPointsService.getAllUserGameweekPoints(userId)
-        const gameweeksPlayed = pointsResult.data.length
-        const averagePoints = gameweeksPlayed > 0 ? userData.totalPoints / gameweeksPlayed : 0
-        
-        topUsers.push({
-          userId,
-          displayName: userData.displayName || 'Unknown User',
-          teamName: userData.teamName || 'Unknown Team',
-          totalPoints: userData.totalPoints || 0,
-          rank: userData.rank || 0,
-          gameweeksPlayed,
-          averagePoints: Math.round(averagePoints * 10) / 10
-        })
+        // Only include users with points (active users)
+        if (userData.totalPoints > 0) {
+          // Get gameweek stats for additional info
+          const pointsResult = await GameweekPointsService.getAllUserGameweekPoints(userId)
+          const gameweeksPlayed = pointsResult.data.length
+          const averagePoints = gameweeksPlayed > 0 ? userData.totalPoints / gameweeksPlayed : 0
+          
+          topUsers.push({
+            userId,
+            displayName: userData.displayName || 'Unknown User',
+            teamName: userData.teamName || 'Unknown Team',
+            totalPoints: userData.totalPoints || 0,
+            rank: userData.rank || 0,
+            gameweeksPlayed,
+            averagePoints: Math.round(averagePoints * 10) / 10
+          })
+        }
       }
+      
+      // Sort by total points (descending) and assign correct ranks
+      topUsers.sort((a, b) => b.totalPoints - a.totalPoints)
+      topUsers.forEach((user, index) => {
+        user.rank = index + 1
+      })
       
       return {
         success: true,
