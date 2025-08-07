@@ -8,18 +8,39 @@ import { UserTransferState, calculateTransferCost } from '@/lib/fantasyLogic'
 interface TransferInfoProps {
   transferState: UserTransferState
   gameweekId: number
+  chipsUsed?: any // Add chips info to check wildcard status for this specific gameweek
 }
 
-export default function TransferInfo({ transferState, gameweekId }: TransferInfoProps) {
+export default function TransferInfo({ transferState, gameweekId, chipsUsed }: TransferInfoProps) {
   const { language, isRTL } = useLanguage()
   const { currentGameweek } = useGameweek()
 
-  // Calculate current transfer cost for next transfer
+  // Check if wildcard is active specifically for this gameweek
+  const isWildcardActiveForThisGW = chipsUsed && (
+    (chipsUsed.wildcard1?.isActive && chipsUsed.wildcard1?.gameweek === gameweekId) ||
+    (chipsUsed.wildcard2?.isActive && chipsUsed.wildcard2?.gameweek === gameweekId)
+  );
+
+  // Use either chip-specific wildcard status or transfer state wildcard status
+  const isWildcardActive = isWildcardActiveForThisGW || transferState.wildcardActive;
+
+  console.log('🔍 TransferInfo wildcard check:', {
+    gameweekId,
+    isWildcardActiveForThisGW,
+    transferStateWildcardActive: transferState.wildcardActive,
+    finalIsWildcardActive: isWildcardActive,
+    chipsUsed: chipsUsed ? {
+      wildcard1: chipsUsed.wildcard1,
+      wildcard2: chipsUsed.wildcard2
+    } : 'not provided'
+  });
+
+  // Calculate current transfer cost for next transfer using the correct wildcard status
   const nextTransferSummary = calculateTransferCost(
     transferState.transfersMadeThisWeek + 1,
     transferState.savedFreeTransfers,
     gameweekId,
-    transferState.wildcardActive,
+    isWildcardActive, // Use the computed wildcard status
     false // freeHit removed
   )
 
@@ -31,10 +52,10 @@ export default function TransferInfo({ transferState, gameweekId }: TransferInfo
       }
     }
 
-    if (transferState.wildcardActive) {
+    if (isWildcardActive) {
       return {
-        ar: 'الورقة البرية نشطة - تبديلات مجانية غير محدودة',
-        en: 'Wildcard Active - Unlimited Free Transfers'
+        ar: `الورقة البرية نشطة للجولة ${gameweekId} - 9999 تبديل مجاني`,
+        en: `Wildcard Active for GW${gameweekId} - 9999 Free Transfers`
       }
     }
 
@@ -55,10 +76,10 @@ export default function TransferInfo({ transferState, gameweekId }: TransferInfo
   }
 
   const getNextTransferCostText = () => {
-    if (gameweekId === 1 || transferState.wildcardActive || transferState.freeHitActive) {
+    if (gameweekId === 1 || isWildcardActive || transferState.freeHitActive) {
       return {
-        ar: 'التبديل التالي: مجاني',
-        en: 'Next Transfer: Free'
+        ar: isWildcardActive ? `التبديل التالي: مجاني (الورقة البرية للجولة ${gameweekId})` : 'التبديل التالي: مجاني',
+        en: isWildcardActive ? `Next Transfer: Free (Wildcard active for GW${gameweekId})` : 'Next Transfer: Free'
       }
     }
 
@@ -76,6 +97,11 @@ export default function TransferInfo({ transferState, gameweekId }: TransferInfo
   }
 
   const getPointsDeductedText = () => {
+    // Don't show point deductions if wildcard or free hit is active, or if we're in GW1
+    if (gameweekId === 1 || isWildcardActive || transferState.freeHitActive) {
+      return null;
+    }
+    
     if (transferState.pointsDeductedThisWeek > 0) {
       return {
         ar: `النقاط المخصومة هذا الأسبوع: -${transferState.pointsDeductedThisWeek}`,
@@ -132,14 +158,16 @@ export default function TransferInfo({ transferState, gameweekId }: TransferInfo
                 • الجولة الأولى: تبديلات مجانية غير محدودة<br/>
                 • الجولة الثانية فما فوق: تبديل مجاني واحد لكل جولة<br/>
                 • التبديلات غير المستخدمة تتراكم (حد أقصى 5)<br/>
-                • كل تبديل إضافي = -4 نقاط
+                • كل تبديل إضافي = -4 نقاط<br/>
+                <span className="font-medium text-blue-600">• الورقة البرية: 9999 تبديل مجاني للجولة المحددة فقط</span>
               </>
             ) : (
               <>
                 • GW1: Unlimited free transfers<br/>
                 • GW2+: 1 free transfer per gameweek<br/>
                 • Unused transfers roll over (max 5)<br/>
-                • Each extra transfer = -4 points
+                • Each extra transfer = -4 points<br/>
+                <span className="font-medium text-blue-600">• Wildcard: 9999 free transfers for the specific gameweek only</span>
               </>
             )}
           </p>

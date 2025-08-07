@@ -37,6 +37,8 @@ import {
   applyTransfer,
   calculateTransferCost,
   autoResetTransferPenalties,
+  activateWildcardTransfer,
+  deactivateWildcardTransfer,
   Squad,
 
 } from '@/lib/fantasyLogic';
@@ -330,30 +332,169 @@ export default function SquadSelectionPage() {
   // Transfer state
   const [transferState, setTransferState] = useState<UserTransferState>(getDefaultTransferState(1, true));
 
+  // Helper function to check if wildcard was deactivated and update transfer state accordingly
+  const handleWildcardDeactivation = useCallback((oldChips: ChipsUsed, newChips: ChipsUsed, targetGameweek: number) => {
+    const wildcard1WasActive = oldChips.wildcard1.isActive;
+    const wildcard2WasActive = oldChips.wildcard2.isActive;
+    const wildcard1NowActive = newChips.wildcard1.isActive;
+    const wildcard2NowActive = newChips.wildcard2.isActive;
+
+    // Check if any wildcard was deactivated
+    if ((wildcard1WasActive && !wildcard1NowActive) || (wildcard2WasActive && !wildcard2NowActive)) {
+      console.log('🃏 Wildcard was deactivated, updating transfer state to give 1 free transfer for new gameweek');
+      const updatedTransferState = deactivateWildcardTransfer(transferState, targetGameweek);
+      console.log('🔄 Updated transfer state after wildcard deactivation:', updatedTransferState);
+      setTransferState(updatedTransferState);
+    }
+  }, [transferState]);
+
+  // Handler for chip activation that also updates transfer state
+  const handleChipActivate = useCallback((newChipsUsed: ChipsUsed) => {
+    console.log('🎯 Chip activation handler called:', newChipsUsed);
+    setChipsUsed(newChipsUsed);
+    
+    // Check if a wildcard was just activated
+    const wildcard1JustActivated = newChipsUsed.wildcard1.isActive && !chipsUsed.wildcard1.isActive;
+    const wildcard2JustActivated = newChipsUsed.wildcard2.isActive && !chipsUsed.wildcard2.isActive;
+    
+    if (wildcard1JustActivated || wildcard2JustActivated) {
+      console.log('🃏 Wildcard activated, updating transfer state with 9999 transfers');
+      const chipType = wildcard1JustActivated ? 'wildcard1' : 'wildcard2';
+      
+      // Use the most current transfer state by using a function update
+      setTransferState(currentTransferState => {
+        const updatedTransferState = activateWildcardTransfer(currentTransferState, chipType);
+        console.log('🔄 Updated transfer state after wildcard activation:', {
+          oldState: currentTransferState,
+          newState: updatedTransferState,
+          wildcardNowActive: updatedTransferState.wildcardActive,
+          savedFreeTransfers: updatedTransferState.savedFreeTransfers
+        });
+        
+        // Save to Firebase immediately
+        if (user) {
+          saveTransferStateToFirebase(user.uid, updatedTransferState).catch(error => {
+            console.error('Error saving transfer state after wildcard activation:', error);
+          });
+        }
+        
+        return updatedTransferState;
+      });
+    }
+  }, [chipsUsed, user]);
+
+  // Watch for wildcard activation and ensure transfer state is updated
+  useEffect(() => {
+    const currentGameweekId = currentGameweek?.id || 1;
+    const wildcard1Active = chipsUsed.wildcard1.isActive && chipsUsed.wildcard1.gameweek === currentGameweekId;
+    const wildcard2Active = chipsUsed.wildcard2.isActive && chipsUsed.wildcard2.gameweek === currentGameweekId;
+    const anyWildcardActive = wildcard1Active || wildcard2Active;
+    
+    // If any wildcard is active for current gameweek but transfer state doesn't reflect it
+    if (anyWildcardActive && !transferState.wildcardActive) {
+      console.log('🔄 Wildcard is active but transfer state not updated. Forcing update.');
+      const chipType = wildcard1Active ? 'wildcard1' : 'wildcard2';
+      const updatedTransferState = activateWildcardTransfer(transferState, chipType);
+      console.log('⚡ Force updating transfer state:', updatedTransferState);
+      setTransferState(updatedTransferState);
+      
+      // Save to Firebase
+      if (user) {
+        saveTransferStateToFirebase(user.uid, updatedTransferState).catch(error => {
+          console.error('Error saving forced transfer state update:', error);
+        });
+      }
+    }
+    
+    // If no wildcard is active but transfer state says it is
+    if (!anyWildcardActive && transferState.wildcardActive) {
+      console.log('🔄 No wildcard active but transfer state says it is. Resetting.');
+      const updatedTransferState = {
+        ...transferState,
+        wildcardActive: false,
+        savedFreeTransfers: Math.max(1, transferState.savedFreeTransfers >= 9999 ? 1 : transferState.savedFreeTransfers)
+      };
+      console.log('⚡ Force resetting transfer state:', updatedTransferState);
+      setTransferState(updatedTransferState);
+      
+      if (user) {
+        saveTransferStateToFirebase(user.uid, updatedTransferState).catch(error => {
+          console.error('Error saving transfer state reset:', error);
+        });
+      }
+    }
+  }, [chipsUsed, transferState, currentGameweek?.id, user]);
+
   // Calculate transfer cost using new system
   const transferCost = useMemo(() => {
-    // No cost if in GW1, user has unlimited transfers (new user), or user is still in their first gameweek
-    const hasUnlimitedTransfers = currentGameweek?.id === 1 || transferState.savedFreeTransfers >= 9999;
+    // Determine which gameweek to use for transfer calculations (open gameweek if available)
+    const gameweekForTransfers = openGameweek?.isOpen ? openGameweek.gw : (currentGameweek?.id || 1);
+    
+    // Check if wildcard is active for the open gameweek
+    const isWildcard1ActiveForOpenGW = chipsUsed.wildcard1.isActive && 
+                                       chipsUsed.wildcard1.gameweek === gameweekForTransfers;
+    const isWildcard2ActiveForOpenGW = chipsUsed.wildcard2.isActive && 
+                                       chipsUsed.wildcard2.gameweek === gameweekForTransfers;
+    const isAnyWildcardActiveForOpenGW = isWildcard1ActiveForOpenGW || isWildcard2ActiveForOpenGW;
+    
+    // No cost if in GW1, user has unlimited transfers (new user), wildcard is active for open gameweek, or transferState wildcard is active
+    const hasUnlimitedTransfers = gameweekForTransfers === 1 || 
+                                  transferState.savedFreeTransfers >= 9999 ||
+                                  isAnyWildcardActiveForOpenGW ||
+                                  transferState.wildcardActive;
     
     if (hasUnlimitedTransfers) {
       console.log('🆓 User has unlimited transfers:', {
-        gameweek: currentGameweek?.id,
+        displayGameweek: currentGameweek?.id,
+        gameweekForTransfers,
+        openGameweek: openGameweek?.gw,
+        isOpenGameweek: openGameweek?.isOpen,
         savedFreeTransfers: transferState.savedFreeTransfers,
-        reason: currentGameweek?.id === 1 ? 'GW1' : 'New user without previous squad'
+        wildcard1: {
+          active: chipsUsed.wildcard1.isActive,
+          gameweek: chipsUsed.wildcard1.gameweek,
+          activeForOpenGW: isWildcard1ActiveForOpenGW
+        },
+        wildcard2: {
+          active: chipsUsed.wildcard2.isActive,
+          gameweek: chipsUsed.wildcard2.gameweek,
+          activeForOpenGW: isWildcard2ActiveForOpenGW
+        },
+        transferStateWildcardActive: transferState.wildcardActive,
+        reason: gameweekForTransfers === 1 ? 'GW1' : 
+                transferState.savedFreeTransfers >= 9999 ? 'New user without previous squad' :
+                isAnyWildcardActiveForOpenGW ? `Wildcard active for open GW${gameweekForTransfers}` :
+                transferState.wildcardActive ? 'Transfer state wildcard active' : 'Unknown'
       });
       return 0;
     }
 
+    // Calculate cost including pending transfers
+    const totalTransfers = transferState.transfersMadeThisWeek + pendingTransfers.length;
+    
+    // Check if wildcard is active - include both chip state and transfer state for immediate response
+    const isWildcardActiveNow = isAnyWildcardActiveForOpenGW || transferState.wildcardActive;
+    
     const summary = calculateTransferCost(
-      transferState.transfersMadeThisWeek,
+      totalTransfers,
       transferState.savedFreeTransfers,
-      currentGameweek?.id || 1,
-      chipsUsed.wildcard1.isActive || chipsUsed.wildcard2.isActive,
+      gameweekForTransfers,
+      isWildcardActiveNow,
       false // freeHit removed
     );
 
+    console.log('💰 Transfer cost calculation:', {
+      gameweekForTransfers,
+      totalTransfers,
+      savedFreeTransfers: transferState.savedFreeTransfers,
+      isWildcardActive: isWildcardActiveNow,
+      transferStateWildcardActive: transferState.wildcardActive,
+      isAnyWildcardActiveForOpenGW,
+      pointsDeducted: summary.pointsDeducted
+    });
+
     return summary.pointsDeducted;
-  }, [transferState, chipsUsed, currentGameweek?.id]);
+  }, [transferState, chipsUsed, currentGameweek?.id, openGameweek, pendingTransfers.length]);
 
   // Load user's saved squad from database
   const loadSavedSquad = useCallback(async () => {
@@ -500,6 +641,9 @@ export default function SquadSelectionPage() {
 
           // Reset chip activation states based on current gameweek
           const gameweekChips = resetChipsForGameweek(userChips, gameweekForTransfers);
+
+          // Handle wildcard deactivation and update transfer state
+          handleWildcardDeactivation(userChips, gameweekChips, gameweekForTransfers);
 
           // If any chips were deactivated, save the updated state back to Firebase
           const hasChanges = Object.keys(gameweekChips).some(chipKey => {
@@ -1669,17 +1813,53 @@ export default function SquadSelectionPage() {
     if (pendingTransfers.length === 0) return;
     
     try {
-      // Here you would save transfers to database
-      // For now, just update free transfers
-      const transfersUsed = Math.min(pendingTransfers.length, freeTransfers);
-      setFreeTransfers(prev => prev - transfersUsed);
+      console.log('🔄 Confirming transfers:', {
+        pendingTransfersCount: pendingTransfers.length,
+        currentTransferState: transferState,
+        wildcardActive: transferState.wildcardActive,
+        savedFreeTransfers: transferState.savedFreeTransfers,
+        pointsDeductedBefore: transferState.pointsDeductedThisWeek
+      });
+      
+      // Apply each transfer using the new transfer system
+      let updatedTransferState = { ...transferState };
+      
+      for (let i = 0; i < pendingTransfers.length; i++) {
+        console.log(`📦 Processing transfer ${i + 1}/${pendingTransfers.length}:`, {
+          beforeState: updatedTransferState,
+          wildcardActive: updatedTransferState.wildcardActive
+        });
+        
+        const { newState, summary } = applyTransfer(updatedTransferState, currentGameweek?.id || 1);
+        
+        console.log(`✅ Transfer ${i + 1} processed:`, {
+          summary,
+          newState,
+          pointsDeducted: summary.pointsDeducted,
+          wildcardUsed: summary.wildcardUsed
+        });
+        
+        updatedTransferState = newState;
+      }
+      
+      console.log('🎯 Final transfer state after all transfers:', updatedTransferState);
+      
+      // Update the transfer state
+      setTransferState(updatedTransferState);
+      
+      // Save transfer state to Firebase
+      if (user) {
+        await saveTransferStateToFirebase(user.uid, updatedTransferState);
+      }
       
       // Clear pending transfers
       setPendingTransfers([]);
       setTransferMode(false);
       
-      alert(`${pendingTransfers.length} transfer(s) confirmed! Cost: ${transferCost} points`);
+      const finalCost = updatedTransferState.pointsDeductedThisWeek;
+      alert(`${pendingTransfers.length} transfer(s) confirmed! Cost: ${finalCost} points`);
     } catch (error) {
+      console.error('Failed to confirm transfers:', error);
       alert('Failed to confirm transfers');
     }
   };
@@ -1748,6 +1928,7 @@ export default function SquadSelectionPage() {
           <TransferInfo
             transferState={transferState}
             gameweekId={openGameweek?.isOpen ? openGameweek.gw : (currentGameweek?.id || 1)}
+            chipsUsed={chipsUsed}
           />
 
 
@@ -1824,7 +2005,7 @@ export default function SquadSelectionPage() {
               <ChipsPanel
                 chipsUsed={chipsUsed}
                 transferState={transferState}
-                onChipActivate={setChipsUsed}
+                onChipActivate={handleChipActivate}
                 disabled={saving || isDeadlinePassedState}
               />
             </div>

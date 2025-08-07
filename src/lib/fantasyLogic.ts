@@ -833,16 +833,29 @@ export function processGameweekStart(
     return currentState
   }
 
-  // Special case: If user had unlimited transfers (9999) and is moving to a new gameweek,
+  // Check if wildcard was active in previous gameweek - if so, deactivate it and give 1 transfer
+  if (currentState.wildcardActive) {
+    console.log(`🃏 Wildcard was active in previous gameweek, deactivating for GW${gameweek}`);
+    return {
+      ...currentState,
+      wildcardActive: false,
+      savedFreeTransfers: 1, // Only 1 free transfer after wildcard expires
+      transfersMadeThisWeek: 0,
+      pointsDeductedThisWeek: 0,
+      lastGameweekProcessed: gameweek
+    };
+  }
+
+  // Special case: If user had unlimited transfers (9999+) and is moving to a new gameweek,
   // they should transition to normal transfer rules (this handles first-time users after their first gameweek)
-  const wasFirstTimeUser = currentState.savedFreeTransfers >= 9999
+  const hadUnlimitedTransfers = currentState.savedFreeTransfers >= 9999
   
   // Calculate free transfers for the new gameweek using helper function
-  const newFreeTransfers = wasFirstTimeUser && gameweek > currentState.lastGameweekProcessed + 1 ?
-    // First-time user transitioning to normal rules gets 1 free transfer
+  const newFreeTransfers = hadUnlimitedTransfers && gameweek > currentState.lastGameweekProcessed + 1 ?
+    // User with unlimited transfers (first-time or wildcard bonus) transitioning to normal rules gets 1 free transfer
     1 :
-    // Normal free transfer calculation
-    calculateFreeTransfers(
+    // Normal free transfer calculation (only if not coming from unlimited transfers)
+    hadUnlimitedTransfers ? 1 : calculateFreeTransfers(
       currentState.lastGameweekProcessed,
       gameweek,
       currentState.savedFreeTransfers
@@ -853,7 +866,7 @@ export function processGameweekStart(
     newGameweek: gameweek,
     previousFreeTransfers: currentState.savedFreeTransfers,
     newFreeTransfers: newFreeTransfers,
-    wasFirstTimeUser: wasFirstTimeUser
+    hadUnlimitedTransfers: hadUnlimitedTransfers
   });
 
   const newState = {
@@ -869,7 +882,7 @@ export function processGameweekStart(
     oldState: currentState,
     newState: newState,
     freeTransfers: newFreeTransfers,
-    transitionedFromFirstTime: wasFirstTimeUser
+    transitionedFromUnlimited: hadUnlimitedTransfers
   });
 
   return newState;
@@ -899,8 +912,8 @@ export function testFreeTransferLogic() {
 
   // Test 4: Special gameweeks
   console.log('\n📋 Test 4: Special Gameweeks');
-  console.log('GW1:', calculateFreeTransfers(0, 1, 0)); // Should be 999
-  console.log('GW2:', calculateFreeTransfers(1, 2, 999)); // Should be 1
+  console.log('GW1:', calculateFreeTransfers(0, 1, 0)); // Should be 9999
+  console.log('GW2:', calculateFreeTransfers(1, 2, 9999)); // Should be 1
 
   // Test 5: Transfer cost calculation
   console.log('\n📋 Test 5: Transfer Cost Calculation');
@@ -924,9 +937,16 @@ export function calculateTransferCost(
 ): GameweekTransferSummary {
   // No cost if wildcard or free hit is active
   if (isWildcardActive || isFreeHitActive) {
+    console.log('🃏 Wildcard/FreeHit active - all transfers are free:', {
+      transfersThisWeek,
+      savedFreeTransfers,
+      gameweek,
+      isWildcardActive,
+      isFreeHitActive
+    });
     return {
       transfersMade: transfersThisWeek,
-      freeTransfersUsed: 0,
+      freeTransfersUsed: transfersThisWeek, // All transfers are considered free
       paidTransfers: 0,
       pointsDeducted: 0,
       wildcardUsed: isWildcardActive,
@@ -934,8 +954,13 @@ export function calculateTransferCost(
     }
   }
 
-  // GW1 or first-time users (9999 transfers): Unlimited free transfers  
+  // GW1 or unlimited transfers (9999+): Unlimited free transfers  
   if (gameweek === 1 || savedFreeTransfers >= 9999) {
+    console.log('🆓 Unlimited transfers (GW1 or 9999+ transfers):', {
+      transfersThisWeek,
+      savedFreeTransfers,
+      gameweek
+    });
     return {
       transfersMade: transfersThisWeek,
       freeTransfersUsed: transfersThisWeek,
@@ -949,6 +974,14 @@ export function calculateTransferCost(
   const freeTransfersUsed = Math.min(transfersThisWeek, savedFreeTransfers)
   const paidTransfers = Math.max(0, transfersThisWeek - freeTransfersUsed)
   const pointsDeducted = paidTransfers * 4
+
+  console.log('💰 Normal transfer cost calculation:', {
+    transfersThisWeek,
+    savedFreeTransfers,
+    freeTransfersUsed,
+    paidTransfers,
+    pointsDeducted
+  });
 
   return {
     transfersMade: transfersThisWeek,
@@ -965,6 +998,37 @@ export function applyTransfer(
   currentState: UserTransferState,
   gameweek: number
 ): { newState: UserTransferState; summary: GameweekTransferSummary } {
+  console.log('🔄 Applying transfer:', {
+    currentState,
+    gameweek,
+    wildcardActive: currentState.wildcardActive
+  });
+
+  // If wildcard is active, don't count transfers or deduct points
+  if (currentState.wildcardActive) {
+    console.log('🃏 Wildcard is active - no transfer counting or point deduction');
+    
+    const summary = calculateTransferCost(
+      0, // No transfers count when wildcard active
+      currentState.savedFreeTransfers,
+      gameweek,
+      true, // wildcard active
+      currentState.freeHitActive
+    )
+
+    const newState: UserTransferState = {
+      ...currentState,
+      transfersMadeThisWeek: 0, // Always 0 when wildcard active
+      pointsDeductedThisWeek: 0, // Always 0 when wildcard active
+      savedFreeTransfers: currentState.savedFreeTransfers // Don't change free transfers
+    }
+
+    console.log('✅ Transfer applied with wildcard active:', { newState, summary });
+    return { newState, summary }
+  }
+
+  // Normal transfer logic when wildcard is not active
+  console.log('📊 Normal transfer logic - wildcard not active');
   const newTransfersThisWeek = currentState.transfersMadeThisWeek + 1
 
   const summary = calculateTransferCost(
@@ -979,16 +1043,17 @@ export function applyTransfer(
     ...currentState,
     transfersMadeThisWeek: newTransfersThisWeek,
     pointsDeductedThisWeek: summary.pointsDeducted,
-    // Deduct free transfers used (but don't go below 0, and don't deduct in GW1)
-    savedFreeTransfers: gameweek === 1 ?
+    // Don't deduct transfers if in GW1 or if unlimited transfers (9999+)
+    savedFreeTransfers: (gameweek === 1 || currentState.savedFreeTransfers >= 9999) ?
       currentState.savedFreeTransfers :
       Math.max(0, currentState.savedFreeTransfers - summary.freeTransfersUsed)
   }
 
+  console.log('✅ Transfer applied normally:', { newState, summary });
   return { newState, summary }
 }
 
-// Activate wildcard - reset free transfers to 1 after use
+// Activate wildcard - give exactly 9999 transfers for the specific gameweek where wildcard is active
 export function activateWildcardTransfer(
   currentState: UserTransferState,
   chipType: 'wildcard1' | 'wildcard2'
@@ -996,9 +1061,24 @@ export function activateWildcardTransfer(
   return {
     ...currentState,
     wildcardActive: true,
-    savedFreeTransfers: 1, // Reset to 1 after wildcard use
+    savedFreeTransfers: 9999, // Set exactly 9999 transfers like new users for the open gameweek
     transfersMadeThisWeek: 0, // Reset transfer count
     pointsDeductedThisWeek: 0 // No deductions with wildcard
+  }
+}
+
+// Deactivate wildcard for next gameweek - give only 1 free transfer
+export function deactivateWildcardTransfer(
+  currentState: UserTransferState,
+  newGameweek: number
+): UserTransferState {
+  return {
+    ...currentState,
+    wildcardActive: false,
+    savedFreeTransfers: 1, // Always 1 free transfer for next gameweek after wildcard
+    transfersMadeThisWeek: 0, // Reset for new gameweek
+    pointsDeductedThisWeek: 0, // Reset for new gameweek
+    lastGameweekProcessed: newGameweek
   }
 }
 
