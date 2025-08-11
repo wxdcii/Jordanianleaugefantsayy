@@ -584,13 +584,61 @@ export default function SquadSelectionPage() {
           console.log('🎮 Chips loaded:', savedSquad.chipsUsed)
         }
 
-        // Set transfer state if available
+        // Set transfer state if available - IMPORTANT: Load the actual saved transfer state
         if (savedSquad.transferState) {
-          setTransferState(prev => ({
-            ...getDefaultTransferState(),
-            ...savedSquad.transferState
-          }))
-          console.log('🔄 Transfer state loaded:', savedSquad.transferState)
+          const loadedTransferState = {
+            savedFreeTransfers: savedSquad.transferState.freeTransfers || 1,
+            transfersMadeThisWeek: savedSquad.transferState.transfersMade || 0,
+            pointsDeductedThisWeek: savedSquad.transferState.transferCost || 0,
+            lastGameweekProcessed: currentGameweek.id,
+            wildcardActive: savedSquad.chipsUsed?.wildcard1?.isActive || savedSquad.chipsUsed?.wildcard2?.isActive || false,
+            freeHitActive: savedSquad.chipsUsed?.freeHit?.isActive || false
+          };
+          
+          setTransferState(loadedTransferState);
+          console.log('🔄 Transfer state loaded from saved squad:', loadedTransferState);
+          
+          // Save this transfer state to the API as well to keep it in sync
+          try {
+            const syncResponse = await fetch('/api/transfers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: user.uid,
+                gameweekId: currentGameweek.id,
+                transferState: loadedTransferState
+              })
+            });
+            
+            if (syncResponse.ok) {
+              console.log('✅ Transfer state synced to API');
+            } else {
+              console.warn('⚠️ Failed to sync transfer state to API');
+            }
+          } catch (error) {
+            console.warn('⚠️ Error syncing transfer state to API:', error);
+          }
+        } else {
+          // If no transfer state in saved squad, load from API as fallback
+          try {
+            const gameweekForTransfers = openGameweek?.isOpen ? openGameweek.gw : currentGameweek.id;
+            const transferResponse = await fetch(`/api/transfers?userId=${user.uid}&gameweekId=${gameweekForTransfers}`);
+            
+            if (transferResponse.ok) {
+              const transferData = await transferResponse.json();
+              setTransferState(transferData.transferState);
+              console.log('🔄 Transfer state loaded from API (fallback):', transferData.transferState);
+            } else {
+              // Use default state as last resort
+              const defaultState = getDefaultTransferState(currentGameweek.id);
+              setTransferState(defaultState);
+              console.log('🔄 Using default transfer state (no saved data):', defaultState);
+            }
+          } catch (error) {
+            console.warn('⚠️ Error loading transfer state from API, using default:', error);
+            const defaultState = getDefaultTransferState(currentGameweek.id);
+            setTransferState(defaultState);
+          }
         }
 
         console.log(`✅ Squad loaded successfully! ${savedSquad.players.length} players selected`)
@@ -672,19 +720,11 @@ export default function SquadSelectionPage() {
           console.log(`🎮 Loaded and reset chips for GW${gameweekForTransfers}:`, gameweekChips);
           setChipsUsed(gameweekChips);
 
-          // Load transfer state using new API for the open gameweek
-          const transferResponse = await fetch(`/api/transfers?userId=${user.uid}&gameweekId=${gameweekForTransfers}`);
-          if (transferResponse.ok) {
-            const transferData = await transferResponse.json();
-            setTransferState(transferData.transferState);
-            console.log(`✅ Loaded transfer state for GW${gameweekForTransfers}:`, transferData.transferState);
-          } else {
-            // Fallback to default state for first-time user
-            console.log(`⚠️ No transfer state found for GW${gameweekForTransfers}, using default for first-time user`);
-            setTransferState(getDefaultTransferState(gameweekForTransfers, true));
-          }
+          // NOTE: Transfer state will be loaded from saved squad in loadSavedSquad function
+          // Only load from API if no saved squad exists (first time user)
+          console.log(`ℹ️ Transfer state will be loaded from saved squad or defaulted in loadSavedSquad`);
 
-          // Load saved squad will be called separately
+          // Load saved squad will be called separately and will handle transfer state
         } catch (error) {
           console.error('Failed to load user data:', error);
         }
@@ -1041,8 +1081,8 @@ export default function SquadSelectionPage() {
           captain: false,
           ownership: Math.random() * 100,
           points: player.points || {}, // Keep the original points object
+          totalPoints: player.totalPoints || 0, // Ensure totalPoints is included
           club: player.club, // Make sure club is preserved
-        
         };
       });
       
@@ -1147,6 +1187,35 @@ export default function SquadSelectionPage() {
     const interval = setInterval(checkDeadlineAndWildcard, 60000);
     return () => clearInterval(interval);
   }, [user, currentGW]);
+
+  // Warn user about unsaved pending transfers when leaving
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingTransfers.length > 0) {
+        e.preventDefault();
+        e.returnValue = 'You have pending transfers that haven\'t been confirmed. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [pendingTransfers]);
+
+  // Helper function to get current gameweek points instead of total points
+  const getGameweekPoints = (player: Player, gameweek: number) => {
+    if (!player.points || typeof player.points !== 'object') return 0;
+    const gameweekKey = `gw${gameweek}`;
+    return player.points[gameweekKey] || 0;
+  };
+
+  const getCurrentGameweekPoints = (player: Player) => {
+    const currentGW = openGameweek?.gw || 1;
+    return getGameweekPoints(player, currentGW);
+  };
 
   // Add club limit validation
   const validateClubLimit = (playerId: string, currentSquad: Player[]) => {
@@ -1272,38 +1341,117 @@ export default function SquadSelectionPage() {
       }
 
       try {
-        // Call transfer API
-        const response = await fetch('/api/transfers', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.uid,
-            playerOutId: playerToTransferOut,
-            playerInId: playerId,
-            gameweekId: currentGameweek.id
-          }),
+        console.log('🔄 Processing direct transfer:', {
+          playerOut: playerOut?.name,
+          playerIn: player.name,
+          currentTransferState: transferState
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          alert(`Transfer failed: ${errorData.error}`);
-          return;
+        // Apply transfer logic directly
+        const { newState, summary } = applyTransfer(transferState, currentGameweek.id);
+        
+        console.log('✅ Transfer calculation result:', {
+          summary,
+          newState,
+          pointsDeducted: summary.pointsDeducted
+        });
+
+        // Update players state - remove old player, add new player
+        setPlayers(prev => prev.map(p => {
+          if (p.id === playerToTransferOut) {
+            return { ...p, selected: false, captain: false };
+          }
+          if (p.id === playerId) {
+            return { ...p, selected: true };
+          }
+          return p;
+        }));
+
+        // Clear captain if removing captain
+        if (captain === playerToTransferOut) {
+          setCaptain('');
         }
 
-        const data = await response.json();
-
-        // Update local state
-        setPlayers(prev => prev.map(p =>
-          p.id === playerId ? { ...p, selected: true } : p
-        ));
-
         // Update transfer state
-        setTransferState(data.transferState);
+        setTransferState(newState);
+
+        // 🔥 CRITICAL: Save the updated squad immediately with new transfer state
+        if (openGameweek?.isOpen) {
+          console.log('💾 Saving squad immediately after transfer...');
+          
+          // Recreate arranged players with the updated state
+          const currentSelectedPlayers = players.filter(p => p.selected || p.id === playerId).filter(p => p.id !== playerToTransferOut);
+          
+          const userSquadData = {
+            userId: user.uid,
+            gameweekId: openGameweek.gw,
+            players: currentSelectedPlayers.map(p => ({
+              playerId: p.id,
+              name: p.name,
+              nameAr: p.nameAr || p.name,
+              position: p.position,
+              club: p.club,
+              price: p.price,
+              isCaptain: p.id === captain && p.id !== playerToTransferOut,
+              isStarting: substitutions[p.id] === 'starting' || (!substitutions[p.id] && ['GKP', 'DEF', 'MID', 'FWD'].includes(p.position)),
+              benchPosition: substitutions[p.id] === 'bench' ? 1 : null,
+              points: p.totalPoints
+            })),
+            formation: selectedFormation,
+            captainId: captain !== playerToTransferOut ? captain : '',
+            totalValue: currentSelectedPlayers.reduce((sum, p) => sum + p.price, 0),
+            transferCost: newState.pointsDeductedThisWeek,
+            chipsUsed: {
+              wildcard1: {
+                used: chipsUsed.wildcard1.used,
+                gameweek: chipsUsed.wildcard1.gameweek,
+                isActive: chipsUsed.wildcard1.isActive || false
+              },
+              wildcard2: {
+                used: chipsUsed.wildcard2.used,
+                gameweek: chipsUsed.wildcard2.gameweek,
+                isActive: chipsUsed.wildcard2.isActive || false
+              },
+              benchBoost: {
+                used: chipsUsed.benchBoost.used,
+                gameweek: chipsUsed.benchBoost.gameweek,
+                isActive: chipsUsed.benchBoost.isActive || false
+              },
+              tripleCaptain: {
+                used: chipsUsed.tripleCaptain.used,
+                gameweek: chipsUsed.tripleCaptain.gameweek,
+                isActive: chipsUsed.tripleCaptain.isActive || false
+              },
+              freeHit: {
+                used: chipsUsed.freeHit?.used || false,
+                gameweek: chipsUsed.freeHit?.gameweek || null,
+                isActive: chipsUsed.freeHit?.isActive || false
+              }
+            },
+            transferState: {
+              transfersMade: newState.transfersMadeThisWeek,
+              freeTransfers: newState.savedFreeTransfers,
+              transferCost: newState.pointsDeductedThisWeek,
+              pendingTransfers: []
+            },
+            isValid: true,
+            validationErrors: [],
+            deadline: `GW${openGameweek.gw} deadline`,
+            isSubmitted: false
+          };
+
+          // Save to Firebase
+          const firebaseResult = await saveUserSquadToSubcollection(user.uid, openGameweek.gw, userSquadData);
+          
+          if (firebaseResult.success) {
+            console.log('✅ Squad saved successfully after transfer!');
+          } else {
+            console.error('❌ Failed to save squad after transfer');
+          }
+        }
 
         // Show success message
-        alert(data.message);
+        alert(`Transfer completed! ${playerOut?.name} → ${player.name}. Cost: ${summary.pointsDeducted} points`);
 
         setPlayerToTransferOut('');
         setShowPlayerModal(false);
@@ -1844,12 +1992,81 @@ export default function SquadSelectionPage() {
       
       console.log('🎯 Final transfer state after all transfers:', updatedTransferState);
       
-      // Update the transfer state
+      // Update the transfer state locally
       setTransferState(updatedTransferState);
       
-      // Save transfer state to Firebase
-      if (user) {
-        await saveTransferStateToFirebase(user.uid, updatedTransferState);
+      // 🔥 CRITICAL FIX: Save the updated squad with new transfer state immediately
+      if (user && openGameweek?.isOpen) {
+        console.log('💾 Saving updated squad with new transfer state...');
+        
+        const allArrangedPlayers = [...arrangedPlayers.starting, ...arrangedPlayers.bench];
+        
+        const userSquadData = {
+          userId: user.uid,
+          gameweekId: openGameweek.gw,
+          players: allArrangedPlayers.map(p => ({
+            playerId: p.id,
+            name: p.name,
+            nameAr: p.nameAr || p.name,
+            position: p.position,
+            club: p.club,
+            price: p.price,
+            isCaptain: p.id === captain,
+            isStarting: arrangedPlayers.starting.some(sp => sp.id === p.id),
+            benchPosition: arrangedPlayers.bench.findIndex(bp => bp.id === p.id) + 1 || null,
+            points: p.totalPoints
+          })),
+          formation: selectedFormation,
+          captainId: captain,
+          totalValue,
+          transferCost: updatedTransferState.pointsDeductedThisWeek, // Use updated transfer cost
+          chipsUsed: {
+            wildcard1: {
+              used: chipsUsed.wildcard1.used,
+              gameweek: chipsUsed.wildcard1.gameweek,
+              isActive: chipsUsed.wildcard1.isActive || false
+            },
+            wildcard2: {
+              used: chipsUsed.wildcard2.used,
+              gameweek: chipsUsed.wildcard2.gameweek,
+              isActive: chipsUsed.wildcard2.isActive || false
+            },
+            benchBoost: {
+              used: chipsUsed.benchBoost.used,
+              gameweek: chipsUsed.benchBoost.gameweek,
+              isActive: chipsUsed.benchBoost.isActive || false
+            },
+            tripleCaptain: {
+              used: chipsUsed.tripleCaptain.used,
+              gameweek: chipsUsed.tripleCaptain.gameweek,
+              isActive: chipsUsed.tripleCaptain.isActive || false
+            },
+            freeHit: {
+              used: chipsUsed.freeHit?.used || false,
+              gameweek: chipsUsed.freeHit?.gameweek || null,
+              isActive: chipsUsed.freeHit?.isActive || false
+            }
+          },
+          transferState: {
+            transfersMade: updatedTransferState.transfersMadeThisWeek,
+            freeTransfers: updatedTransferState.savedFreeTransfers,
+            transferCost: updatedTransferState.pointsDeductedThisWeek,
+            pendingTransfers: []
+          },
+          isValid: true,
+          validationErrors: [],
+          deadline: `GW${openGameweek.gw} deadline`,
+          isSubmitted: false
+        };
+
+        // Save to Firebase immediately to persist the transfer changes
+        const firebaseResult = await saveUserSquadToSubcollection(user.uid, openGameweek.gw, userSquadData);
+        
+        if (firebaseResult.success) {
+          console.log('✅ Squad with updated transfer state saved successfully!');
+        } else {
+          console.error('❌ Failed to save squad with updated transfer state');
+        }
       }
       
       // Clear pending transfers
@@ -1931,7 +2148,44 @@ export default function SquadSelectionPage() {
             chipsUsed={chipsUsed}
           />
 
-
+          {/* Pending Transfers Confirmation */}
+          {pendingTransfers.length > 0 && (
+            <div className="mb-6 p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+                    {language === 'ar' ? 'انتباه: لديك تحويلات معلقة' : 'Attention: You have pending transfers'}
+                  </h3>
+                  <p className="text-yellow-700 text-sm">
+                    {language === 'ar' 
+                      ? `${pendingTransfers.length} تحويل(ات) في انتظار التأكيد. يجب تأكيدها لحفظها.`
+                      : `${pendingTransfers.length} transfer(s) pending confirmation. They must be confirmed to be saved.`
+                    }
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      setPendingTransfers([]);
+                      setTransferMode(false);
+                      // Reload the page to reset to saved squad
+                      window.location.reload();
+                    }}
+                    variant="outline"
+                    className="bg-white hover:bg-gray-50"
+                  >
+                    {language === 'ar' ? 'إلغاء' : 'Cancel'}
+                  </Button>
+                  <Button
+                    onClick={confirmTransfers}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {language === 'ar' ? 'تأكيد التحويلات' : 'Confirm Transfers'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Stats Bar */}
           <div className="grid grid-cols-3 gap-4 mb-6">
@@ -1943,7 +2197,7 @@ export default function SquadSelectionPage() {
               <div className="text-sm text-gray-600">Starting XI Pts</div>
               <div className="font-bold">
                 {arrangedPlayers.starting.reduce((sum, player) => {
-                  const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                  const basePoints = getCurrentGameweekPoints(player);
                   const isCaptain = captain === player.id;
                   const isTriple = chipsUsed.tripleCaptain.isActive;
                   const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -1957,7 +2211,7 @@ export default function SquadSelectionPage() {
                 {(() => {
                   const benchPlayers = arrangedPlayers.bench;
                   const benchPoints = benchPlayers.reduce((sum, player) => {
-                    const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                    const basePoints = getCurrentGameweekPoints(player);
                     return sum + basePoints;
                   }, 0);
                   return benchPoints;
@@ -1971,7 +2225,7 @@ export default function SquadSelectionPage() {
                 {(() => {
                   // Starting XI points (FIXED: use arrangedPlayers.starting instead of selectedPlayers)
                   const startingPoints = arrangedPlayers.starting.reduce((sum, player) => {
-                    const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                    const basePoints = getCurrentGameweekPoints(player);
                     const isCaptain = captain === player.id;
                     const isTriple = chipsUsed.tripleCaptain.isActive;
                     const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -1981,7 +2235,7 @@ export default function SquadSelectionPage() {
                   // Bench points (only count if Bench Boost is active)
                   const benchPoints = chipsUsed.benchBoost.isActive
                     ? arrangedPlayers.bench.reduce((sum, player) => {
-                        const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                        const basePoints = getCurrentGameweekPoints(player);
                         return sum + basePoints;
                       }, 0)
                     : 0;
@@ -2103,7 +2357,7 @@ export default function SquadSelectionPage() {
           <div className="font-bold">{player.name.split(' ')[0]}</div>
           <div className="text-gray-600">
             {(() => {
-              const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+              const basePoints = getCurrentGameweekPoints(player);
               const isCaptain = captain === player.id;
               const isTriple = chipsUsed.tripleCaptain.isActive;
               const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -2163,7 +2417,7 @@ export default function SquadSelectionPage() {
                             <div className="font-bold">{player.name.split(' ')[0]}</div>
                             <div className="text-gray-600">
                               {(() => {
-                                const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                                const basePoints = getCurrentGameweekPoints(player);
                                 const isCaptain = captain === player.id;
                                 const isTriple = chipsUsed.tripleCaptain.isActive;
                                 const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -2223,7 +2477,7 @@ export default function SquadSelectionPage() {
                             <div className="font-bold">{player.name.split(' ')[0]}</div>
                             <div className="text-gray-600">
                               {(() => {
-                                const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                                const basePoints = getCurrentGameweekPoints(player);
                                 const isCaptain = captain === player.id;
                                 const isTriple = chipsUsed.tripleCaptain.isActive;
                                 const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -2278,7 +2532,7 @@ export default function SquadSelectionPage() {
                                 <div className="font-bold">{player.name.split(' ')[0]}</div>
                                 <div className="text-gray-600">
                                   {(() => {
-                                    const basePoints = player.points?.[`gw${getPointsGameweek()}`] ?? 0;
+                                    const basePoints = getCurrentGameweekPoints(player);
                                     const isCaptain = captain === player.id;
                                     const isTriple = chipsUsed.tripleCaptain.isActive;
                                     const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
@@ -2346,7 +2600,7 @@ export default function SquadSelectionPage() {
                           <div className="text-xs">{subGK.name.split(' ')[0]}</div>
                           <div className="text-xs text-gray-400">{subGK.price.toFixed(1)}M {language === 'ar' ? 'د.أ' : 'JOD'}</div>
                           <div className="text-xs text-blue-600 font-medium">
-                            {subGK.points?.[`gw${getPointsGameweek()}`] ?? 0}pts
+                            {getCurrentGameweekPoints(subGK)}pts
                           </div>
                         </div>
                       ) : (
@@ -2390,7 +2644,7 @@ export default function SquadSelectionPage() {
                             <div className="text-xs">{player.name.split(' ')[0]}</div>
                             <div className="text-xs text-gray-400">{player.price.toFixed(1)}M {language === 'ar' ? 'د.أ' : 'JOD'}</div>
                             <div className="text-xs text-blue-600 font-medium">
-                              {player.points?.[`gw${getPointsGameweek()}`] ?? 0}pts
+                              {getCurrentGameweekPoints(player)}pts
                             </div>
                           </div>
                         ) : (
@@ -2510,7 +2764,7 @@ export default function SquadSelectionPage() {
             {player.price.toFixed(1)} د.أ
           </div>
           <div className="w-20 text-center text-gray-900 font-semibold flex items-center justify-center">
-            {player.points?.[`gw${getPointsGameweek()}`] ?? 0} نقطة
+            {player.totalPoints} نقطة
           </div>
           <div className="w-36 text-center text-gray-700 font-medium flex items-center justify-center">
             {player.club}

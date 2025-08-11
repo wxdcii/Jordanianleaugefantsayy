@@ -114,7 +114,7 @@ export default function UserPointsDisplay({
     : 0;
 
   // Override totalUsers for marketing
-  const marketingTotalUsers = 4753;
+  const marketingTotalUsers = 6352;
   const displayTotalUsers = marketingTotalUsers;
 
   return (
