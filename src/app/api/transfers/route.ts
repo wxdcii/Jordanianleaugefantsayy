@@ -46,39 +46,85 @@ export async function POST(request: NextRequest) {
     // Check if this is a completely new user by looking at both flag and actual squad history
     const hasEverSavedSquadFlag = userData.hasEverSavedSquad
     
-    // Additional check: Does user actually have any squads in their subcollection?
-    let hasAnySquads = false
+    // Enhanced check: Does user have squads in previous completed gameweeks?
+    let hasSquadsInPreviousGameweeks = false
+    let hasSquadForCurrentGameweek = false
+    
     try {
       const squadsRef = collection(db, 'users', userId, 'squads')
       const squadsSnapshot = await getDocs(squadsRef)
-      hasAnySquads = !squadsSnapshot.empty
+      
+      if (!squadsSnapshot.empty) {
+        // Check if user has squads for gameweeks before the current one
+        const previousGameweeks = []
+        for (let gw = 1; gw < gameweekId; gw++) {
+          previousGameweeks.push(`gw${gw}`)
+        }
+        
+        const currentGameweekId = `gw${gameweekId}`
+        
+        console.log(`🔍 POST: Checking for squads in previous gameweeks: ${previousGameweeks.join(', ')}`)
+        console.log(`🔍 POST: Checking for squad in current gameweek: ${currentGameweekId}`)
+        
+        for (const squadDoc of squadsSnapshot.docs) {
+          if (previousGameweeks.includes(squadDoc.id)) {
+            hasSquadsInPreviousGameweeks = true
+            console.log(`✅ POST: Found squad in previous gameweek ${squadDoc.id}`)
+          }
+          if (squadDoc.id === currentGameweekId) {
+            hasSquadForCurrentGameweek = true
+            console.log(`✅ POST: Found squad in current gameweek ${squadDoc.id}`)
+          }
+        }
+        
+        console.log(`📊 POST: User has squads in previous gameweeks: ${hasSquadsInPreviousGameweeks}`)
+        console.log(`📊 POST: User has squad for current gameweek: ${hasSquadForCurrentGameweek}`)
+      }
     } catch (error) {
       console.warn('Could not check user squad history:', error)
     }
     
-    // User is truly new only if they have NEVER saved a squad AND have no squads in their collection
-    const isNewUser = !hasEverSavedSquadFlag && !hasAnySquads
+    // User gets 999 transfers ONLY if:
+    // 1. They have never saved a squad (flag is false/undefined)
+    // 2. They have no squads in previous gameweeks  
+    // 3. They don't have a squad for the current gameweek yet
+    const isFirstTimeForThisGameweek = !hasEverSavedSquadFlag && !hasSquadsInPreviousGameweeks && !hasSquadForCurrentGameweek
     
-    // New users who have never saved a squad get unlimited transfers (9999)
-    const shouldHaveUnlimitedTransfers = isNewUser
+    // Only give unlimited transfers for their very first gameweek squad creation
+    const shouldHaveUnlimitedTransfers = isFirstTimeForThisGameweek
     
     // Get current transfer state or initialize default
     let currentTransferState: UserTransferState = userData.transferState || getDefaultTransferState(gameweekId, shouldHaveUnlimitedTransfers)
     
-    // Force unlimited transfers for new users
-    if (isNewUser && currentTransferState.savedFreeTransfers < 9999) {
+    // Force unlimited transfers for first-time users on their first gameweek
+    if (isFirstTimeForThisGameweek && currentTransferState.savedFreeTransfers < 9999) {
       currentTransferState.savedFreeTransfers = 9999
     }
     
     console.log('🎯 Current transfer state:', currentTransferState)
     console.log('🔍 Transfer conditions:', {
       hasEverSavedSquadFlag: hasEverSavedSquadFlag,
-      hasAnySquads: hasAnySquads,
-      isNewUser: isNewUser,
+      hasSquadsInPreviousGameweeks: hasSquadsInPreviousGameweeks,
+      hasSquadForCurrentGameweek: hasSquadForCurrentGameweek,
+      isFirstTimeForThisGameweek: isFirstTimeForThisGameweek,
       shouldHaveUnlimitedTransfers: shouldHaveUnlimitedTransfers,
       gameweekId: gameweekId,
       savedFreeTransfers: currentTransferState.savedFreeTransfers
     })
+
+    // Safety check for wildcard state - deactivate if gameweek has moved past when it was active
+    if (currentTransferState.wildcardActive && currentTransferState.lastGameweekProcessed < gameweekId) {
+      console.log(`🃏 POST Safety check: Wildcard was active in GW${currentTransferState.lastGameweekProcessed}, deactivating for GW${gameweekId}`);
+      currentTransferState = {
+        ...currentTransferState,
+        wildcardActive: false,
+        savedFreeTransfers: 1, // Transition to normal transfers
+        transfersMadeThisWeek: 0,
+        pointsDeductedThisWeek: 0,
+        lastGameweekProcessed: gameweekId
+      };
+      console.log(`🔄 POST: Wildcard deactivated, state updated`);
+    }
 
     // Process gameweek start if needed
     const processedState = processGameweekStart(currentTransferState, gameweekId)
@@ -161,26 +207,57 @@ export async function GET(request: NextRequest) {
     // Check if this is a completely new user by looking at both flag and actual squad history
     const hasEverSavedSquadFlag = userData.hasEverSavedSquad
     
-    // Additional check: Does user actually have any squads in their subcollection?
-    let hasAnySquads = false
+    // Enhanced check: Does user have squads in previous completed gameweeks?
+    let hasSquadsInPreviousGameweeks = false
+    let hasSquadForCurrentGameweek = false
+    
     try {
       const squadsRef = collection(db, 'users', userId, 'squads')
       const squadsSnapshot = await getDocs(squadsRef)
-      hasAnySquads = !squadsSnapshot.empty
+      
+      if (!squadsSnapshot.empty) {
+        // Check if user has squads for gameweeks before the current one
+        const previousGameweeks = []
+        for (let gw = 1; gw < gameweekId; gw++) {
+          previousGameweeks.push(`gw${gw}`)
+        }
+        
+        const currentGameweekId = `gw${gameweekId}`
+        
+        console.log(`🔍 GET: Checking for squads in previous gameweeks: ${previousGameweeks.join(', ')}`)
+        console.log(`🔍 GET: Checking for squad in current gameweek: ${currentGameweekId}`)
+        
+        for (const squadDoc of squadsSnapshot.docs) {
+          if (previousGameweeks.includes(squadDoc.id)) {
+            hasSquadsInPreviousGameweeks = true
+            console.log(`✅ GET: Found squad in previous gameweek ${squadDoc.id}`)
+          }
+          if (squadDoc.id === currentGameweekId) {
+            hasSquadForCurrentGameweek = true
+            console.log(`✅ GET: Found squad in current gameweek ${squadDoc.id}`)
+          }
+        }
+        
+        console.log(`📊 GET: User has squads in previous gameweeks: ${hasSquadsInPreviousGameweeks}`)
+        console.log(`📊 GET: User has squad for current gameweek: ${hasSquadForCurrentGameweek}`)
+      }
     } catch (error) {
       console.warn('Could not check user squad history:', error)
     }
     
-    // User is truly new only if they have NEVER saved a squad AND have no squads in their collection
-    const isNewUser = !hasEverSavedSquadFlag && !hasAnySquads
+    // User gets 999 transfers ONLY if:
+    // 1. They have never saved a squad (flag is false/undefined)
+    // 2. They have no squads in previous gameweeks  
+    // 3. They don't have a squad for the current gameweek yet
+    const isFirstTimeForThisGameweek = !hasEverSavedSquadFlag && !hasSquadsInPreviousGameweeks && !hasSquadForCurrentGameweek
     
-    // New users who have never saved a squad get unlimited transfers (9999)
-    const shouldHaveUnlimitedTransfers = isNewUser
+    // Only give unlimited transfers for their very first gameweek squad creation
+    const shouldHaveUnlimitedTransfers = isFirstTimeForThisGameweek
     
     let transferState: UserTransferState = userData.transferState || getDefaultTransferState(gameweekId, shouldHaveUnlimitedTransfers)
 
-    // Force unlimited transfers for new users
-    if (isNewUser && transferState.savedFreeTransfers < 9999) {
+    // Force unlimited transfers for first-time users on their first gameweek
+    if (isFirstTimeForThisGameweek && transferState.savedFreeTransfers < 9999) {
       transferState.savedFreeTransfers = 9999
     }
 
@@ -188,8 +265,9 @@ export async function GET(request: NextRequest) {
       currentTransferState: transferState,
       gameweekRequested: gameweekId,
       hasEverSavedSquadFlag: hasEverSavedSquadFlag,
-      hasAnySquads: hasAnySquads,
-      isNewUser: isNewUser,
+      hasSquadsInPreviousGameweeks: hasSquadsInPreviousGameweeks,
+      hasSquadForCurrentGameweek: hasSquadForCurrentGameweek,
+      isFirstTimeForThisGameweek: isFirstTimeForThisGameweek,
       shouldHaveUnlimitedTransfers: shouldHaveUnlimitedTransfers,
       savedFreeTransfers: transferState.savedFreeTransfers
     });
@@ -205,6 +283,27 @@ export async function GET(request: NextRequest) {
         transferState: autoResetState,
         lastUpdated: new Date()
       });
+    }
+
+    // Step 1.5: Safety check for wildcard state - deactivate if gameweek has moved past when it was active
+    if (transferState.wildcardActive && transferState.lastGameweekProcessed < gameweekId) {
+      console.log(`🃏 Safety check: Wildcard was active in GW${transferState.lastGameweekProcessed}, deactivating for GW${gameweekId}`);
+      transferState = {
+        ...transferState,
+        wildcardActive: false,
+        savedFreeTransfers: 1, // Transition to normal transfers
+        transfersMadeThisWeek: 0,
+        pointsDeductedThisWeek: 0,
+        lastGameweekProcessed: gameweekId
+      };
+      
+      // Save the wildcard deactivation
+      await updateDoc(userDocRef, {
+        transferState: transferState,
+        lastUpdated: new Date()
+      });
+      
+      console.log(`💾 Saved wildcard deactivation for GW${gameweekId}`);
     }
 
     // Step 2: Process gameweek start if needed (normal gameweek progression)

@@ -67,13 +67,14 @@ export async function POST(request) {
       }
     }
 
-    // Update total points for all users: Add ONLY the open gameweek points to existing total
-    console.log('🧮 Adding open gameweek points to existing totals...')
+    // Update total points for all users: Add open gameweek points ONLY if not already added
+    console.log('🧮 Adding open gameweek points to existing totals (with duplicate protection)...')
     try {
       const { collection, getDocs, getDoc, doc, updateDoc } = await import('firebase/firestore')
       const { db } = await import('../../../lib/firebase')
       const usersSnapshot = await getDocs(collection(db, 'users'))
       let totalPointsUpdated = 0
+      let skippedDuplicates = 0
       const openGameweek = Math.max(...gameweeks) // Get the current open gameweek
       
       console.log(`📊 Processing open gameweek: GW${openGameweek}`)
@@ -83,30 +84,45 @@ export async function POST(request) {
           const userId = userDoc.id
           const userData = userDoc.data()
           
-          // Get existing total points (from previous gameweeks)
+          // Check if this gameweek has already been processed for this user
+          const alreadyProcessed = userData[`gw${openGameweek}Processed`]
+          const lastProcessedGW = userData.lastProcessedGameweek
+          
+          if (alreadyProcessed || lastProcessedGW === openGameweek) {
+            console.log(`⏭️  User ${userId}: GW${openGameweek} already processed, skipping`)
+            skippedDuplicates++
+            continue
+          }
+          
+          // Get existing total points
           const existingTotalPoints = userData.totalPoints || 0
           
-          // Get current open gameweek points for this user
-          const gwPointsDocRef = doc(db, 'users', userId, 'GameweekPoints', `gw${openGameweek}`)
-          const gwPointsDoc = await getDoc(gwPointsDocRef)
-          const currentGWPoints = gwPointsDoc.exists() ? (gwPointsDoc.data().points || 0) : 0
+          // Get NEW open gameweek points (just calculated)
+          const openGWPointsDocRef = doc(db, 'users', userId, 'GameweekPoints', `gw${openGameweek}`)
+          const openGWPointsDoc = await getDoc(openGWPointsDocRef)
+          const openGWPoints = openGWPointsDoc.exists() ? (openGWPointsDoc.data().points || 0) : 0
           
-          // Add current gameweek points to existing total
-          const newTotalPoints = existingTotalPoints + currentGWPoints
+          // Calculate new total: existing total + open gameweek points
+          const newTotalPoints = existingTotalPoints + openGWPoints
           
-          // Update user's total points
+          // Update user's total points and mark as processed
           await updateDoc(doc(db, 'users', userId), { 
             totalPoints: newTotalPoints,
+            openGameweekPoints: openGWPoints,
+            openGameweek: openGameweek,
             lastPointsUpdate: new Date(),
-            [`gw${openGameweek}Processed`]: true // Mark this gameweek as processed
+            [`gw${openGameweek}Processed`]: true, // Mark as processed
+            lastProcessedGameweek: openGameweek // Additional protection
           })
 
-          console.log(`✅ User ${userId}: ${existingTotalPoints} + ${currentGWPoints} = ${newTotalPoints} total points`)
+          console.log(`✅ User ${userId}: ${existingTotalPoints} + ${openGWPoints} = ${newTotalPoints} total`)
           totalPointsUpdated++
         } catch (userError) {
           console.warn(`Error updating total points for user ${userDoc.id}:`, userError)
         }
       }
+      
+      console.log(`📊 Summary: ${totalPointsUpdated} users updated, ${skippedDuplicates} duplicates skipped`)
       console.log(`✅ Updated total points for ${totalPointsUpdated} users`)
 
       // --- RANKING LOGIC ---

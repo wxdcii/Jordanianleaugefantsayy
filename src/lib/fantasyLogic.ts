@@ -835,31 +835,37 @@ export function processGameweekStart(
 
   // Check if wildcard was active in previous gameweek - if so, deactivate it and give 1 transfer
   if (currentState.wildcardActive) {
-    console.log(`🃏 Wildcard was active in previous gameweek, deactivating for GW${gameweek}`);
+    console.log(`🃏 Wildcard was active in previous gameweek, deactivating for GW${gameweek} and transitioning to 1 transfer`);
     return {
       ...currentState,
       wildcardActive: false,
-      savedFreeTransfers: 1, // Only 1 free transfer after wildcard expires
+      savedFreeTransfers: 1, // Always 1 free transfer after wildcard expires
       transfersMadeThisWeek: 0,
       pointsDeductedThisWeek: 0,
       lastGameweekProcessed: gameweek
     };
   }
 
-  // Special case: If user had unlimited transfers (9999+) and is moving to a new gameweek,
-  // they should transition to normal transfer rules (this handles first-time users after their first gameweek)
+  // Special case: If user had unlimited transfers (9999+) from wildcard or first-time user
+  // and is moving to a new gameweek, they should ALWAYS transition to normal transfer rules
   const hadUnlimitedTransfers = currentState.savedFreeTransfers >= 9999
   
-  // Calculate free transfers for the new gameweek using helper function
-  const newFreeTransfers = hadUnlimitedTransfers && gameweek > currentState.lastGameweekProcessed + 1 ?
-    // User with unlimited transfers (first-time or wildcard bonus) transitioning to normal rules gets 1 free transfer
-    1 :
-    // Normal free transfer calculation (only if not coming from unlimited transfers)
-    hadUnlimitedTransfers ? 1 : calculateFreeTransfers(
+  // Calculate free transfers for the new gameweek
+  let newFreeTransfers;
+  
+  if (hadUnlimitedTransfers) {
+    // User had unlimited transfers (from wildcard or first-time) - always give them 1 transfer for the new gameweek
+    // This ensures wildcards and first-time users only get 9999 transfers for ONE gameweek
+    newFreeTransfers = 1;
+    console.log(`🔄 Transitioning from unlimited transfers (${currentState.savedFreeTransfers}) to normal rules: 1 free transfer`);
+  } else {
+    // Normal free transfer calculation for users with regular transfer counts
+    newFreeTransfers = calculateFreeTransfers(
       currentState.lastGameweekProcessed,
       gameweek,
       currentState.savedFreeTransfers
     );
+  }
 
   console.log(`📊 Regular gameweek progression free transfers:`, {
     previousGameweek: currentState.lastGameweekProcessed,
