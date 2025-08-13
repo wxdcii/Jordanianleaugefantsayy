@@ -1347,14 +1347,28 @@ export default function SquadSelectionPage() {
           currentTransferState: transferState
         });
 
-        // Apply transfer logic directly
-        const { newState, summary } = applyTransfer(transferState, currentGameweek.id);
-        
-        console.log('✅ Transfer calculation result:', {
-          summary,
-          newState,
-          pointsDeducted: summary.pointsDeducted
+        // Call the transfer API to process the transfer
+        const transferResponse = await fetch('/api/transfers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.uid,
+            playerOutId: playerToTransferOut,
+            playerInId: playerId,
+            gameweekId: openGameweek?.isOpen ? openGameweek.gw : currentGameweek.id
+          })
         });
+
+        if (!transferResponse.ok) {
+          const errorData = await transferResponse.json();
+          throw new Error(errorData.error || 'Transfer failed');
+        }
+
+        const transferResult = await transferResponse.json();
+        console.log('✅ Transfer API result:', transferResult);
+
+        // Update local state based on API response
+        setTransferState(transferResult.transferState);
 
         // Update players state - remove old player, add new player
         setPlayers(prev => prev.map(p => {
@@ -1372,8 +1386,25 @@ export default function SquadSelectionPage() {
           setCaptain('');
         }
 
-        // Update transfer state
-        setTransferState(newState);
+        // Update substitutions state to ensure new player is in correct position
+        const updatedSubstitutions = { ...substitutions };
+        
+        // If the old player had a specific substitution position, remove it
+        if (updatedSubstitutions[playerToTransferOut]) {
+          delete updatedSubstitutions[playerToTransferOut];
+        }
+        
+        // If the old player was manually placed in starting XI, put new player there too
+        if (substitutions[playerToTransferOut] === 'starting') {
+          updatedSubstitutions[playerId] = 'starting';
+        }
+        // If the old player was manually placed on bench, put new player there too
+        else if (substitutions[playerToTransferOut] === 'bench') {
+          updatedSubstitutions[playerId] = 'bench';
+        }
+        
+        setSubstitutions(updatedSubstitutions);
+        console.log('🔄 Updated substitutions after transfer:', updatedSubstitutions);
 
         // 🔥 CRITICAL: Save the updated squad immediately with new transfer state
         if (openGameweek?.isOpen) {
@@ -1400,7 +1431,7 @@ export default function SquadSelectionPage() {
             formation: selectedFormation,
             captainId: captain !== playerToTransferOut ? captain : '',
             totalValue: currentSelectedPlayers.reduce((sum, p) => sum + p.price, 0),
-            transferCost: newState.pointsDeductedThisWeek,
+            transferCost: transferResult.transferState.pointsDeductedThisWeek,
             chipsUsed: {
               wildcard1: {
                 used: chipsUsed.wildcard1.used,
@@ -1429,9 +1460,9 @@ export default function SquadSelectionPage() {
               }
             },
             transferState: {
-              transfersMade: newState.transfersMadeThisWeek,
-              freeTransfers: newState.savedFreeTransfers,
-              transferCost: newState.pointsDeductedThisWeek,
+              transfersMade: transferResult.transferState.transfersMadeThisWeek,
+              freeTransfers: transferResult.transferState.savedFreeTransfers,
+              transferCost: transferResult.transferState.pointsDeductedThisWeek,
               pendingTransfers: []
             },
             isValid: true,
@@ -1450,11 +1481,30 @@ export default function SquadSelectionPage() {
           }
         }
 
+        // Force a re-render to ensure UI updates
+        console.log('🔄 Transfer completed, forcing UI refresh');
+        
         // Show success message
-        alert(`Transfer completed! ${playerOut?.name} → ${player.name}. Cost: ${summary.pointsDeducted} points`);
+        alert(`Transfer completed! ${playerOut?.name} → ${player.name}. Cost: ${transferResult.summary?.pointsDeducted || 0} points`);
 
         setPlayerToTransferOut('');
         setShowPlayerModal(false);
+        
+        // Force component re-render by updating a state and reloading squad
+        setTimeout(async () => {
+          console.log('🔄 Post-transfer state check:', {
+            playersSelected: players.filter(p => p.selected).length,
+            newPlayerSelected: players.find(p => p.id === playerId)?.selected,
+            substitutions: substitutions
+          });
+          
+          // Force reload the squad from Firebase to ensure UI is in sync
+          if (user && openGameweek?.isOpen) {
+            console.log('🔄 Force reloading squad after transfer to ensure UI sync...');
+            setSquadLoaded(false); // This will trigger loadSavedSquad again
+          }
+        }, 500);
+        
         return;
 
       } catch (error) {
