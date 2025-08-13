@@ -893,9 +893,23 @@ export default function SquadSelectionPage() {
     // Combine bench (GK first, then outfield players)
     const finalBench = [...finalBenchGK, ...finalBenchOutfield]
     
+    // SAFETY CHECK: Ensure exactly 11 starting players
+    const maxStartingPlayers = 11
+    const validStarting = finalStarting.slice(0, maxStartingPlayers)
+    
+    // If we have more than 11 starting players, move extras to bench
+    const extraPlayers = finalStarting.slice(maxStartingPlayers)
+    const saferBench = [...finalBench, ...extraPlayers]
+    
+    console.log(`🔍 Player arrangement: Starting=${validStarting.length}, Bench=${saferBench.length}, Total=${validStarting.length + saferBench.length}`)
+    
+    if (validStarting.length > 11) {
+      console.warn(`⚠️ WARNING: More than 11 starting players detected! Limiting to 11.`)
+    }
+    
     return { 
-      starting: finalStarting, 
-      bench: finalBench 
+      starting: validStarting, 
+      bench: saferBench 
     }
   }
 
@@ -1949,6 +1963,19 @@ export default function SquadSelectionPage() {
   const getFormationPlayers = () => {
     const startingPlayers = arrangedPlayers.starting
     
+    // SAFETY CHECK: Ensure we never show more than 11 players on pitch
+    if (startingPlayers.length > 11) {
+      console.error(`🚨 CRITICAL: ${startingPlayers.length} players in starting XI! Should be 11 max.`)
+      // Emergency fix: take only first 11 players
+      const safeStarting = startingPlayers.slice(0, 11)
+      return {
+        gkp: safeStarting.filter(p => p.position === 'GKP'),
+        def: safeStarting.filter(p => p.position === 'DEF'),
+        mid: safeStarting.filter(p => p.position === 'MID'),
+        fwd: safeStarting.filter(p => p.position === 'FWD')
+      }
+    }
+    
     return {
       gkp: startingPlayers.filter(p => p.position === 'GKP'),
       def: startingPlayers.filter(p => p.position === 'DEF'),
@@ -2246,7 +2273,7 @@ export default function SquadSelectionPage() {
             </div>
             <div className="text-center">
               <div className="text-sm text-gray-600">Starting XI Pts</div>
-              <div className="font-bold">
+              <div className={`font-bold ${arrangedPlayers.starting.length !== 11 ? 'text-red-600' : ''}`}>
                 {arrangedPlayers.starting.reduce((sum, player) => {
                   const basePoints = getCurrentGameweekPoints(player);
                   const isCaptain = captain === player.id;
@@ -2254,6 +2281,9 @@ export default function SquadSelectionPage() {
                   const finalPoints = isCaptain ? basePoints * (isTriple ? 3 : 2) : basePoints;
                   return sum + finalPoints;
                 }, 0) - transferCost}
+                <span className={`text-xs ml-1 ${arrangedPlayers.starting.length !== 11 ? 'text-red-500' : 'text-gray-500'}`}>
+                  ({arrangedPlayers.starting.length}/11)
+                </span>
               </div>
             </div>
             <div className="text-center">
@@ -2297,6 +2327,28 @@ export default function SquadSelectionPage() {
             </div>
           </div>
 
+          {/* Warning for incorrect number of starting players */}
+          {arrangedPlayers.starting.length !== 11 && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 rounded-lg">
+              <div className="flex items-center">
+                <span className="text-red-600 font-bold mr-2">⚠️</span>
+                <div>
+                  <p className="text-red-800 font-medium">
+                    {language === 'ar' 
+                      ? `خطأ: لديك ${arrangedPlayers.starting.length} لاعبين في التشكيلة الأساسية (يجب أن يكون 11)`
+                      : `Error: You have ${arrangedPlayers.starting.length} players in starting XI (should be 11)`
+                    }
+                  </p>
+                  <p className="text-red-600 text-sm mt-1">
+                    {language === 'ar'
+                      ? 'يرجى تعديل التشكيلة لتحتوي على 11 لاعب فقط'
+                      : 'Please adjust your formation to have exactly 11 players'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
 
 
