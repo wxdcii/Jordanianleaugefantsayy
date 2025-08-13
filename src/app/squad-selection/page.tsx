@@ -1253,6 +1253,7 @@ export default function SquadSelectionPage() {
     const matchesClub = selectedClub === 'all' || player.club === selectedClub;
     const matchesSearch = searchTerm === '' || 
       player.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (player.nameAr && player.nameAr.toLowerCase().includes(searchTerm.toLowerCase())) ||
       player.club.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesPrice = player.price >= priceRange[0] && player.price <= priceRange[1];
     
@@ -1262,7 +1263,7 @@ export default function SquadSelectionPage() {
       case 'price': return b.price - a.price;
       case 'totalPoints': return b.totalPoints - a.totalPoints;
       case 'ownership': return (b.ownership || 0) - (a.ownership || 0);
-      case 'name': return a.name.localeCompare(b.name);
+      case 'name': return (a.nameAr || a.name).localeCompare(b.nameAr || b.name);
       default: return 0;
     }
   });
@@ -1305,7 +1306,7 @@ export default function SquadSelectionPage() {
       return;
     }
 
-    console.log('Setting selected player:', player.name);
+    console.log('Setting selected player:', player.nameAr || player.name);
     setSelectedPlayerDetails(player);
     setShowPlayerModal(true);
     
@@ -1342,8 +1343,8 @@ export default function SquadSelectionPage() {
 
       try {
         console.log('🔄 Processing direct transfer:', {
-          playerOut: playerOut?.name,
-          playerIn: player.name,
+          playerOut: playerOut?.nameAr || playerOut?.name,
+          playerIn: player.nameAr || player.name,
           currentTransferState: transferState
         });
 
@@ -1485,7 +1486,7 @@ export default function SquadSelectionPage() {
         console.log('🔄 Transfer completed, forcing UI refresh');
         
         // Show success message
-        alert(`Transfer completed! ${playerOut?.name} → ${player.name}. Cost: ${transferResult.summary?.pointsDeducted || 0} points`);
+        alert(`Transfer completed! ${playerOut?.nameAr || playerOut?.name} → ${player.nameAr || player.name}. Cost: ${transferResult.summary?.pointsDeducted || 0} points`);
 
         setPlayerToTransferOut('');
         setShowPlayerModal(false);
@@ -1561,7 +1562,7 @@ export default function SquadSelectionPage() {
     setPlayerToTransferOut(playerId);
     setShowPlayerModal(false);
     
-    alert(`${player.name} removed. Now select a replacement player.`);
+    alert(`${player.nameAr || player.name} removed. Now select a replacement player.`);
   };
 
   // Get validation message for UI
@@ -2404,7 +2405,7 @@ export default function SquadSelectionPage() {
         </div>
 
         <div className="bg-white rounded px-2 py-1 text-xs font-medium shadow">
-          <div className="font-bold">{player.name.split(' ')[0]}</div>
+          <div className="font-bold">{(player.nameAr || player.name).split(' ')[0]}</div>
           <div className="text-gray-600">
             {(() => {
               const basePoints = getCurrentGameweekPoints(player);
@@ -2464,7 +2465,7 @@ export default function SquadSelectionPage() {
                           </div>
 
                           <div className="bg-white rounded px-2 py-1 text-xs font-medium shadow">
-                            <div className="font-bold">{player.name.split(' ')[0]}</div>
+                            <div className="font-bold">{(player.nameAr || player.name).split(' ')[0]}</div>
                             <div className="text-gray-600">
                               {(() => {
                                 const basePoints = getCurrentGameweekPoints(player);
@@ -2524,7 +2525,7 @@ export default function SquadSelectionPage() {
                           </div>
 
                           <div className="bg-white rounded px-2 py-1 text-xs font-medium shadow">
-                            <div className="font-bold">{player.name.split(' ')[0]}</div>
+                            <div className="font-bold">{(player.nameAr || player.name).split(' ')[0]}</div>
                             <div className="text-gray-600">
                               {(() => {
                                 const basePoints = getCurrentGameweekPoints(player);
@@ -2579,7 +2580,7 @@ export default function SquadSelectionPage() {
                               </div>
                               
                               <div className="bg-white rounded px-2 py-1 text-xs font-medium shadow">
-                                <div className="font-bold">{player.name.split(' ')[0]}</div>
+                                <div className="font-bold">{(player.nameAr || player.name).split(' ')[0]}</div>
                                 <div className="text-gray-600">
                                   {(() => {
                                     const basePoints = getCurrentGameweekPoints(player);
@@ -2645,9 +2646,9 @@ export default function SquadSelectionPage() {
                           }}
                         >
                           <div className="bg-yellow-500 text-black rounded-full w-12 h-12 flex items-center justify-center text-xs font-bold mx-auto mb-1">
-                            {subGK.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                            {(subGK.nameAr || subGK.name).split(' ').map(n => n[0]).join('').slice(0, 2)}
                           </div>
-                          <div className="text-xs">{subGK.name.split(' ')[0]}</div>
+                          <div className="text-xs">{(subGK.nameAr || subGK.name).split(' ')[0]}</div>
                           <div className="text-xs text-gray-400">{subGK.price.toFixed(1)}M {language === 'ar' ? 'د.أ' : 'JOD'}</div>
                           <div className="text-xs text-blue-600 font-medium">
                             {getCurrentGameweekPoints(subGK)}pts
@@ -2689,9 +2690,9 @@ export default function SquadSelectionPage() {
                               player.position === 'MID' ? 'bg-green-500' :
                               player.position === 'FWD' ? 'bg-red-500' : 'bg-gray-500'
                             }`}>
-                              {player.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              {(player.nameAr || player.name).split(' ').map(n => n[0]).join('').slice(0, 2)}
                             </div>
-                            <div className="text-xs">{player.name.split(' ')[0]}</div>
+                            <div className="text-xs">{(player.nameAr || player.name).split(' ')[0]}</div>
                             <div className="text-xs text-gray-400">{player.price.toFixed(1)}M {language === 'ar' ? 'د.أ' : 'JOD'}</div>
                             <div className="text-xs text-blue-600 font-medium">
                               {getCurrentGameweekPoints(player)}pts
@@ -2788,7 +2789,7 @@ export default function SquadSelectionPage() {
         <div
           key={player.id}
           onClick={() => {
-            console.log('تم اختيار اللاعب:', player.name);
+            console.log('تم اختيار اللاعب:', player.nameAr || player.name);
             handlePlayerSelect(player.id);
           }}
           className={`flex p-4 mb-3 text-sm cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-100 ${
@@ -2904,7 +2905,7 @@ export default function SquadSelectionPage() {
 
              {/* Player Name */}
               <h2 className="text-xl font-bold text-gray-900 mb-2">
-                {selectedPlayerDetails.name}
+                {selectedPlayerDetails.nameAr || selectedPlayerDetails.name}
               </h2>
 
               {/* Position Badge */}
