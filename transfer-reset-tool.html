@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transfer Reset Tool</title>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .big-button {
+            background: #4CAF50;
+            color: white;
+            padding: 20px 40px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+            width: 100%;
+        }
+        .big-button:hover {
+            background: #45a049;
+        }
+        .big-button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .info { color: #2196F3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Transfer Reset Tool</h1>
+        <p>This will reset ALL users for GW4:</p>
+        <ul style="text-align: left; max-width: 300px; margin: 0 auto;">
+            <li>✅ Set free transfers to <strong>2</strong></li>
+            <li>✅ Reset deduction points to <strong>0</strong></li>
+            <li>✅ Reset transfers made to <strong>0</strong></li>
+        </ul>
+        
+        <button onclick="quickReset()" id="resetBtn" class="big-button">
+            🚀 RESET ALL USERS NOW
+        </button>
+        
+        <div id="log" class="log" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAA5U81ZlnHeO0JSea-CwBX5jr013ZdCg8",
+            authDomain: "jordanianfantasy-eef57.firebaseapp.com",
+            projectId: "jordanianfantasy-eef57",
+            storageBucket: "jordanianfantasy-eef57.firebasestorage.app",
+            messagingSenderId: "112691197575",
+            appId: "1:112691197575:web:8b4124608078dde3082a22"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            logDiv.style.display = 'block';
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            logDiv.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span><br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        async function quickReset() {
+            const resetBtn = document.getElementById('resetBtn');
+            resetBtn.disabled = true;
+            resetBtn.textContent = '⏳ PROCESSING...';
+            
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML = '';
+            
+            try {
+                log('🚀 Starting quick reset for GW4...', 'info');
+                
+                // Get all users
+                const usersSnapshot = await db.collection('users').get();
+                log(`👥 Found ${usersSnapshot.docs.length} users`, 'info');
+                
+                let successCount = 0;
+                const targetGameweek = 4;
+                
+                // Process each user
+                for (const userDoc of usersSnapshot.docs) {
+                    const userId = userDoc.id;
+                    
+                    try {
+                        // Create transfer state with reset values
+                        const transferState = {
+                            savedFreeTransfers: 2,
+                            transfersMadeThisWeek: 0,
+                            pointsDeductedThisWeek: 0,
+                            lastGameweekProcessed: targetGameweek,
+                            wildcardActive: false,
+                            freeHitActive: false
+                        };
+                        
+                        // Update transfers collection
+                        await db.collection('transfers').doc(`${userId}_${targetGameweek}`).set({
+                            userId: userId,
+                            gameweekId: targetGameweek,
+                            transferState: transferState,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            resetBy: 'transfer_reset_tool'
+                        }, { merge: true });
+                        
+                        // Update squad if exists
+                        try {
+                            const squadRef = db.collection('users').doc(userId).collection('squads').doc(`gw${targetGameweek}`);
+                            const squadDoc = await squadRef.get();
+                            
+                            if (squadDoc.exists()) {
+                                await squadRef.update({
+                                    'transferState.freeTransfers': 2,
+                                    'transferState.transferCost': 0,
+                                    'transferState.transfersMade': 0,
+                                    'transferState.pendingTransfers': [],
+                                    transferCost: 0,
+                                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                                    resetBy: 'transfer_reset_tool'
+                                });
+                            }
+                        } catch (squadError) {
+                            // Squad might not exist, that's fine
+                        }
+                        
+                        successCount++;
+                        
+                        if (successCount % 5 === 0) {
+                            log(`✅ Updated ${successCount} users...`, 'success');
+                        }
+                        
+                    } catch (userError) {
+                        log(`❌ Error updating user ${userId}: ${userError.message}`, 'error');
+                    }
+                }
+                
+                log(`🎉 RESET COMPLETED!`, 'success');
+                log(`✅ Successfully updated: ${successCount} users`, 'success');
+                log(`🎁 All users now have 2 free transfers`, 'success');
+                log(`💰 All deduction points reset to 0`, 'success');
+                
+                resetBtn.textContent = '✅ RESET COMPLETED';
+                resetBtn.style.background = '#4CAF50';
+                
+            } catch (error) {
+                log(`💥 Reset failed: ${error.message}`, 'error');
+                resetBtn.disabled = false;
+                resetBtn.textContent = '🚀 RESET ALL USERS NOW';
+            }
+        }
+    </script>
+</body>
+</html>

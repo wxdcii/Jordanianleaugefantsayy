@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Transfer Enable - Admin Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        
+        .title {
+            color: #333;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+        
+        .admin-badge {
+            background: linear-gradient(45deg, #ff6b6b, #feca57);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+        
+        .action-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.3);
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.4);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(45deg, #dc3545, #fd7e14);
+            color: white;
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.3);
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(220, 53, 69, 0.4);
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #007bff;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .green { background: #28a745; }
+        .red { background: #dc3545; }
+        .blue { background: #007bff; }
+        
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        
+        .success {
+            background: #d1edff;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .instructions {
+            background: #e3f2fd;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        
+        .instructions h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ul {
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="admin-badge">🔐 Admin Quick Access</div>
+        
+        <h1 class="title">🎮 Transfer Enable Tool</h1>
+        <p class="subtitle">Quickly enable/disable transfers for testing</p>
+        
+        <div class="action-buttons">
+            <button id="enableAllBtn" class="btn btn-primary" onclick="enableAllTransfers()">
+                🟢 Enable All Transfers
+            </button>
+            <button id="disableAllBtn" class="btn btn-danger" onclick="disableAllTransfers()">
+                🔴 Disable All Transfers
+            </button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>Processing...</div>
+        </div>
+        
+        <div id="message"></div>
+        
+        <div class="status-card">
+            <h3>📊 Current Status</h3>
+            <div id="statusContent">
+                <div class="status-item">
+                    <span><span class="status-indicator blue"></span>Checking gameweek status...</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>📋 Instructions</h3>
+            <ul>
+                <li><strong>Enable All Transfers:</strong> Opens all gameweeks for testing - players can make changes</li>
+                <li><strong>Disable All Transfers:</strong> Closes all gameweeks - no changes allowed</li>
+                <li><strong>Testing Mode:</strong> Use "Enable All" to test transfer functionality</li>
+                <li><strong>Admin Only:</strong> This tool requires admin authentication (ammar.mkld67@yahoo.com)</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getFirestore, collection, getDocs, doc, updateDoc, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+
+        // Firebase configuration (replace with your config)
+        const firebaseConfig = {
+            apiKey: "AIzaSyA6mhfWd4deE0aAOGfBEaOOOBUJP6C-viE",
+            authDomain: "fantasyleague-d1b49.firebaseapp.com",
+            projectId: "fantasyleague-d1b49",
+            storageBucket: "fantasyleague-d1b49.firebasestorage.app",
+            messagingSenderId: "157993939826",
+            appId: "1:157993939826:web:a69d4f14b99e29b6da5b31",
+            measurementId: "G-6NLXPYB2EG"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Admin email
+        const ADMIN_EMAIL = 'ammar.mkld67@yahoo.com';
+
+        let currentUser = null;
+
+        // Check authentication
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (!user) {
+                showMessage('Please sign in to use admin tools', 'warning');
+                document.getElementById('enableAllBtn').disabled = true;
+                document.getElementById('disableAllBtn').disabled = true;
+                return;
+            }
+
+            if (user.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+                showMessage('Access denied - Admin only', 'error');
+                document.getElementById('enableAllBtn').disabled = true;
+                document.getElementById('disableAllBtn').disabled = true;
+                return;
+            }
+
+            showMessage(`Welcome Admin: ${user.email}`, 'success');
+            loadGameweekStatus();
+        });
+
+        // Show message
+        function showMessage(text, type = 'success') {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = `<div class="message ${type}">${text}</div>`;
+            
+            // Auto-hide success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        // Show loading
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+            document.getElementById('enableAllBtn').disabled = show;
+            document.getElementById('disableAllBtn').disabled = show;
+        }
+
+        // Load gameweek status
+        async function loadGameweekStatus() {
+            try {
+                console.log('📊 Loading gameweek status...');
+                const gameweeksRef = collection(db, 'gameweeksDeadline');
+                const q = query(gameweeksRef, orderBy('gw', 'asc'));
+                const querySnapshot = await getDocs(q);
+
+                let openCount = 0;
+                let closedCount = 0;
+                let statusHTML = '';
+
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const isOpen = data.isOpen || false;
+                    const status = isOpen ? 'OPEN' : 'CLOSED';
+                    const statusClass = isOpen ? 'green' : 'red';
+                    
+                    statusHTML += `
+                        <div class="status-item">
+                            <span><span class="status-indicator ${statusClass}"></span>GW${data.gw} - ${status}</span>
+                            <span>${new Date(data.deadline).toLocaleDateString()}</span>
+                        </div>
+                    `;
+                    
+                    if (isOpen) openCount++;
+                    else closedCount++;
+                });
+
+                document.getElementById('statusContent').innerHTML = statusHTML + `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <strong>Open: ${openCount} | Closed: ${closedCount} | Total: ${openCount + closedCount}</strong>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('❌ Error loading status:', error);
+                showMessage('Failed to load gameweek status', 'error');
+            }
+        }
+
+        // Enable all transfers
+        window.enableAllTransfers = async function() {
+            if (!currentUser || currentUser.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+                showMessage('Admin access required', 'error');
+                return;
+            }
+
+            if (!confirm('Enable ALL transfers for testing?\n\nThis will open all gameweeks and allow players to make changes.')) {
+                return;
+            }
+
+            try {
+                showLoading(true);
+                showMessage('Opening all gameweeks...', 'warning');
+
+                const gameweeksRef = collection(db, 'gameweeksDeadline');
+                const querySnapshot = await getDocs(gameweeksRef);
+
+                const promises = [];
+                querySnapshot.forEach((docSnapshot) => {
+                    const gameweekRef = doc(db, 'gameweeksDeadline', docSnapshot.id);
+                    promises.push(updateDoc(gameweekRef, { isOpen: true }));
+                });
+
+                await Promise.all(promises);
+
+                showMessage(`✅ Successfully opened ${promises.length} gameweeks! All transfers are now ENABLED.`, 'success');
+                loadGameweekStatus();
+
+            } catch (error) {
+                console.error('❌ Error enabling transfers:', error);
+                showMessage('Failed to enable transfers: ' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        };
+
+        // Disable all transfers
+        window.disableAllTransfers = async function() {
+            if (!currentUser || currentUser.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+                showMessage('Admin access required', 'error');
+                return;
+            }
+
+            if (!confirm('Disable ALL transfers?\n\nThis will close all gameweeks and prevent any team changes.')) {
+                return;
+            }
+
+            try {
+                showLoading(true);
+                showMessage('Closing all gameweeks...', 'warning');
+
+                const gameweeksRef = collection(db, 'gameweeksDeadline');
+                const querySnapshot = await getDocs(gameweeksRef);
+
+                const promises = [];
+                querySnapshot.forEach((docSnapshot) => {
+                    const gameweekRef = doc(db, 'gameweeksDeadline', docSnapshot.id);
+                    promises.push(updateDoc(gameweekRef, { isOpen: false }));
+                });
+
+                await Promise.all(promises);
+
+                showMessage(`✅ Successfully closed ${promises.length} gameweeks! All transfers are now DISABLED.`, 'success');
+                loadGameweekStatus();
+
+            } catch (error) {
+                console.error('❌ Error disabling transfers:', error);
+                showMessage('Failed to disable transfers: ' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        };
+
+        // Auto-refresh status every 30 seconds
+        setInterval(() => {
+            if (currentUser && currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+                loadGameweekStatus();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Reset Transfers</title>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .danger {
+            background: #f44336;
+        }
+        .danger:hover {
+            background: #da190b;
+        }
+        .log {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .input-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Admin Panel - Reset Transfers</h1>
+        
+        <div class="input-group">
+            <label for="gameweek">Target Gameweek:</label>
+            <input type="number" id="gameweek" value="4" min="1" max="38">
+        </div>
+        
+        <div class="input-group">
+            <label for="freeTransfers">Set Free Transfers To:</label>
+            <input type="number" id="freeTransfers" value="2" min="0" max="5">
+        </div>
+        
+        <button onclick="resetAllTransfers()" id="resetBtn">
+            🔄 Reset All Users' Transfers
+        </button>
+        
+        <button onclick="testConnection()" style="background: #2196F3;">
+            🔍 Test Firebase Connection
+        </button>
+        
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyClkUTQm1vdAGnGOpdFH9D0B-eF8Ql8CQI",
+            authDomain: "fantasyleague-d9e1e.firebaseapp.com",
+            projectId: "fantasyleague-d9e1e",
+            storageBucket: "fantasyleague-d9e1e.firebasestorage.app",
+            messagingSenderId: "1070940148478",
+            appId: "1:1070940148478:web:a2e90f5ad61a3bbd649def"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        async function testConnection() {
+            log('🔍 Testing Firebase connection...');
+            try {
+                const testDoc = await db.collection('gameweeksDeadline').limit(1).get();
+                log('✅ Firebase connection successful!');
+                log(`📊 Found ${testDoc.docs.length} gameweek documents`);
+                
+                // Check for open gameweek
+                const gameweeksSnapshot = await db.collection('gameweeksDeadline').get();
+                let openGameweek = null;
+                
+                gameweeksSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.isOpen) {
+                        openGameweek = data.gw;
+                        log(`🎯 Found open gameweek: GW${data.gw}`);
+                    }
+                });
+                
+                if (!openGameweek) {
+                    log('⚠️ No open gameweek found');
+                } else {
+                    document.getElementById('gameweek').value = openGameweek;
+                }
+                
+            } catch (error) {
+                log(`❌ Firebase connection failed: ${error.message}`);
+            }
+        }
+
+        async function resetAllTransfers() {
+            const gameweek = parseInt(document.getElementById('gameweek').value);
+            const freeTransfers = parseInt(document.getElementById('freeTransfers').value);
+            
+            if (!confirm(`Are you sure you want to reset ALL users' transfers for GW${gameweek}?\n\nThis will:\n- Set free transfers to ${freeTransfers}\n- Reset deduction points to 0\n- Reset transfers made to 0`)) {
+                return;
+            }
+            
+            const resetBtn = document.getElementById('resetBtn');
+            resetBtn.disabled = true;
+            resetBtn.textContent = '⏳ Processing...';
+            
+            try {
+                log(`🚀 Starting transfer reset for GW${gameweek}...`);
+                
+                // Get all users
+                const usersSnapshot = await db.collection('users').get();
+                log(`👥 Found ${usersSnapshot.docs.length} users to update`);
+                
+                let successCount = 0;
+                let errorCount = 0;
+                
+                // Process each user
+                for (const userDoc of usersSnapshot.docs) {
+                    const userId = userDoc.id;
+                    
+                    try {
+                        // Create/update transfer state
+                        const transferState = {
+                            savedFreeTransfers: freeTransfers,
+                            transfersMadeThisWeek: 0,
+                            pointsDeductedThisWeek: 0,
+                            lastGameweekProcessed: gameweek,
+                            wildcardActive: false,
+                            freeHitActive: false
+                        };
+                        
+                        // Update transfers collection
+                        const transferDocRef = db.collection('transfers').doc(`${userId}_${gameweek}`);
+                        await transferDocRef.set({
+                            userId: userId,
+                            gameweekId: gameweek,
+                            transferState: transferState,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            resetBy: 'admin_panel'
+                        }, { merge: true });
+                        
+                        // Update user's squad if exists
+                        try {
+                            const squadRef = db.collection('users').doc(userId).collection('squads').doc(`gw${gameweek}`);
+                            const squadDoc = await squadRef.get();
+                            
+                            if (squadDoc.exists()) {
+                                await squadRef.update({
+                                    'transferState.freeTransfers': freeTransfers,
+                                    'transferState.transferCost': 0,
+                                    'transferState.transfersMade': 0,
+                                    transferCost: 0,
+                                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                                    resetBy: 'admin_panel'
+                                });
+                            }
+                        } catch (squadError) {
+                            // Squad might not exist, that's okay
+                        }
+                        
+                        successCount++;
+                        
+                        if (successCount % 10 === 0) {
+                            log(`✅ Updated ${successCount} users...`);
+                        }
+                        
+                    } catch (userError) {
+                        errorCount++;
+                        log(`❌ Error updating user ${userId}: ${userError.message}`);
+                    }
+                }
+                
+                log(`🎉 Transfer reset completed!`);
+                log(`📊 Summary:`);
+                log(`   - Gameweek: GW${gameweek}`);
+                log(`   - Successfully updated: ${successCount} users`);
+                log(`   - Errors: ${errorCount} users`);
+                log(`   - Free transfers set to: ${freeTransfers}`);
+                log(`   - Deduction points reset to: 0`);
+                
+            } catch (error) {
+                log(`💥 Error during transfer reset: ${error.message}`);
+            } finally {
+                resetBtn.disabled = false;
+                resetBtn.textContent = '🔄 Reset All Users\' Transfers';
+            }
+        }
+
+        // Test connection on page load
+        window.onload = function() {
+            log('🌟 Admin Panel loaded successfully');
+            testConnection();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+  
+  .rotate-x-60 {
+    transform: rotateX(60deg);
+  }
+  
+  .transform-gpu {
+    transform: translateZ(0);
+  }
+}
+
+@layer base {
+  html[dir="rtl"] {
+    font-family: 'Noto Sans Arabic', sans-serif;
+  }
+
+  html[dir="ltr"] {
+    font-family: Inter, sans-serif;
+  }
+
+  /* RTL specific adjustments */
+  html[dir="rtl"] .space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-x-reverse: 1;
+  }
+
+  html[dir="rtl"] .flex-row-reverse {
+    flex-direction: row-reverse;
+  }
+
+  /* Arabic text improvements */
+  html[dir="rtl"] h1,
+  html[dir="rtl"] h2,
+  html[dir="rtl"] h3,
+  html[dir="rtl"] h4,
+  html[dir="rtl"] h5,
+  html[dir="rtl"] h6 {
+    font-weight: 600;
+  }
+
+  html[dir="rtl"] p {
+    line-height: 1.8;
+  }
+
+  /* Button spacing for RTL */
+  html[dir="rtl"] button svg {
+    margin-left: 0.25rem;
+    margin-right: 0;
+  }
+
+  html[dir="ltr"] button svg {
+    margin-left: 0.25rem;
+    margin-right: 0;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 346 84% 61%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 142 76% 36%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 51 100% 50%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 346 84% 61%;
+    --radius: 0.5rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+
+  .dark {
+    --background: 222 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 346 84% 61%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 142 76% 36%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 217 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 51 100% 50%;
+    --accent-foreground: 222 84% 4.9%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32.6% 17.5%;
+    --input: 217 32.6% 17.5%;
+    --ring: 346 84% 61%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground transition-colors duration-300;
+  }
+
+  /* Ensure all common elements respond to dark mode */
+  .dark {
+    color-scheme: dark;
+  }
+
+  /* Force dark mode styles for common elements */
+  .dark div,
+  .dark section,
+  .dark main,
+  .dark header,
+  .dark footer,
+  .dark nav {
+    @apply transition-colors duration-300;
+  }
+
+  /* Override any hardcoded colors in dark mode */
+  .dark .bg-white {
+    @apply bg-background;
+  }
+
+  .dark .text-black {
+    @apply text-foreground;
+  }
+
+  .dark .text-gray-900 {
+    @apply text-foreground;
+  }
+
+  .dark .text-gray-800 {
+    @apply text-foreground;
+  }
+
+  .dark .text-gray-700 {
+    @apply text-muted-foreground;
+  }
+
+  .dark .text-gray-600 {
+    @apply text-muted-foreground;
+  }
+
+  .dark .text-gray-500 {
+    @apply text-muted-foreground;
+  }
+
+  .dark .bg-gray-50 {
+    @apply bg-muted;
+  }
+
+  .dark .bg-gray-100 {
+    @apply bg-muted;
+  }
+
+  .dark .bg-gray-200 {
+    @apply bg-muted;
+  }
+
+  .dark .border-gray-200 {
+    @apply border-border;
+  }
+
+  .dark .border-gray-300 {
+    @apply border-border;
+  }
+}
+
+
+
